@@ -8,7 +8,7 @@ tarpitd.py - a daemon making a port into tarpit
 
 ## SYNOPSIS
 
-    tarpitd.py [-h] [-v] [-r RATE] 
+    tarpitd.py [-h] [-r RATE] 
         [-s SERVICE:HOST:PORT [SERVICE:HOST:PORT ...]] [--manual]
 
 ## DESCRIPTION
@@ -19,20 +19,45 @@ connect to it. For more information on tarpitd.py, please refer to
 
     tarpitd.py --manual tarpitd.py.7
 
+## OPTIONS
+
+`-s SERVICE:HOST:PORT [SERVICE:HOST:PORT ...]`
+`--serve SERVICE:HOST:PORT [SERVICE:HOST:PORT ...]`
+
+Start a service on specified host and port. 
+The name of service is case-insensitive.
+
+`-r RATE, --rate RATE`
+
+Set data transfer rate limit.
+Positive value limit transfer speed to RATE *byte* per second.
+Negative value will make program send one byte in RATE second.
+(In other word, negative vale means 1/RATE byte per second.)
+
 ## EXAMPLES
 
 Print this manual:
 
     tarpitd.py --manual
 
+Start an endlessh tarpit:
+
+    tarpitd.py -s misc_endlessh:0.0.0.0:2222
+
 Start an endless HTTP tarpit on 0.0.0.0:8080, send a byte every two
 seconds:
 
     tarpitd.py -r-2 -s HTTP_ENDLESS_COOKIE:0.0.0.0:8088
 
-Start two different HTTP tarpit at the same time:
+Start an endless HTTP tarpit on 0.0.0.0:8088, limit the transfer speed
+to 1 KB/s:
 
-    tarpitd.py -s http_deflate_bomb:0.0.0.0:8080 \
+    tarpitd.py -r1024 -s HTTP_DEFLATE_HTML_BOMB:0.0.0.0:8088
+
+Start two different HTTP tarpit at the same time
+(the name of service is case-insensitive):
+
+    tarpitd.py -s http_deflate_html_bomb:127.0.0.1:8080 \
                   HTTP_ENDLESS_COOKIE:0.0.0.0:8088 
 
 ## AUTHOR
@@ -131,9 +156,23 @@ Curl won't decompress content by default. If you want to test this
 with curl, please add `--compressed` option to it, and make sure you
 have enough space for decompressed data.
 
+### MISC_ENDLESSH
+
+Have been tested with client: openssh
+
+Endlessh is a famous ssh tarpit. It keeps SSH clients locked up for
+hours or even days at a time by sending endless banners. Despite its 
+name, technically this is not SSH, but an endless banner sender.
+Endless does implement no part of the SSH protocol, and no port 
+scanner will think it is SSH ( at least nmap and censys don't mark 
+this as SSH).
+
+The current implementation in tarpitd.py is just an alias of 
+MISC_EGSH_AMINOAS.
+
 ### MISC_EGSH_AMINOAS
 
-Tested with client: openssh
+Have been tested with client: openssh
 
 This service can be used as an alternative to endlessh.
 
@@ -143,7 +182,7 @@ by Daret Hanakhan: Egsh Aminoas. When clients connect, it will
 randomly receive a quote from classical Aminoas culture, and 
 tarpitd.py will show you the same quote in log at the same time.
 
-Hope this song will bring you homesickness. And remenber ... 
+Hope this song will bring you homesickness. And remember ... 
 You are always welcome in Aminoas.
 
 """
@@ -394,6 +433,8 @@ async def async_main(args):
                 pit = HttpTarpit("deflate_html_bomb", rate=args.rate)
             case "http_deflate_size_bomb":
                 pit = HttpTarpit("deflate_size_bomb", rate=args.rate)
+            case "misc_endlessh":
+                pit = MiscTarpit("egsh_aminoas", rate=args.rate)
             case "misc_egsh_aminoas":
                 pit = MiscTarpit("egsh_aminoas", rate=args.rate)
             case other:
@@ -422,9 +463,7 @@ def main_cli():
     import argparse
 
     parser = argparse.ArgumentParser(prog="tarpitd")
-    parser.add_argument(
-        "-v", "--verbose", help="increase output verbosity\nss", action="store_true"
-    )
+
     # parser.add_argument(
     #     "-c", "--config", help="load configuration file", action="store"
     # )

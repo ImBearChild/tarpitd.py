@@ -83,9 +83,23 @@ Curl won't decompress content by default. If you want to test this
 with curl, please add `--compressed` option to it, and make sure you
 have enough space for decompressed data.
 
+### MISC_ENDLESSH
+
+Have been tested with client: openssh
+
+Endlessh is a famous ssh tarpit. It keeps SSH clients locked up for
+hours or even days at a time by sending endless banners. Despite its 
+name, technically this is not SSH, but an endless banner sender.
+Endless does implement no part of the SSH protocol, and no port 
+scanner will think it is SSH ( at least nmap and censys don't mark 
+this as SSH).
+
+The current implementation in tarpitd.py is just an alias of 
+MISC_EGSH_AMINOAS.
+
 ### MISC_EGSH_AMINOAS
 
-Tested with client: openssh
+Have been tested with client: openssh
 
 This service can be used as an alternative to endlessh.
 
@@ -95,5 +109,5 @@ by Daret Hanakhan: Egsh Aminoas. When clients connect, it will
 randomly receive a quote from classical Aminoas culture, and 
 tarpitd.py will show you the same quote in log at the same time.
 
-Hope this song will bring you homesickness. And remenber ... 
+Hope this song will bring you homesickness. And remember ... 
 You are always welcome in Aminoas.
