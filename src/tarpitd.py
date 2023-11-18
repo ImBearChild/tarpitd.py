@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # =============================================================================
 # Manual: tarpitd.py.1
 # -----------------------------------------------------------------------------
@@ -462,7 +463,7 @@ def main_cli():
     logging.basicConfig(level=logging.INFO)
     import argparse
 
-    parser = argparse.ArgumentParser(prog="tarpitd")
+    parser = argparse.ArgumentParser(prog="tarpitd.py")
 
     # parser.add_argument(
     #     "-c", "--config", help="load configuration file", action="store"
