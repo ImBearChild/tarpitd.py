@@ -1,6 +1,6 @@
 ## NAME
 
-tarpitd-service - information about tarpit services in tarpitd.py
+tarpitd.py - information about tarpit services in tarpitd.py
 
 ## GENERAL DESCRIPTION
 
@@ -38,7 +38,8 @@ You can use tarpit to slow them down.
 A service in tarpitd.py represent a pattern of response.
 
 For an instance, to fight a malicious HTTP client, tarpitd.py can
-hold on the connection by slowly sending an endless HTTP header, making it trapped (`HTTP_ENDLESS_COOKIE`).
+hold on the connection by slowly sending an endless HTTP header, 
+making it trapped (`HTTP_ENDLESS_COOKIE`).
 Also, tarpitd.py can send a malicious HTML back
 to the malicious client, overloading its HTML parser 
 (`HTTP_DEFLATE_HTML_BOMB`). 
