@@ -30,7 +30,7 @@ seconds:
 
 Start two different HTTP tarpit at the same time:
 
-    tarpitd.py -s http_deflate_bomb:0.0.0.0:8080 \\
+    tarpitd.py -s http_deflate_size_bomb:0.0.0.0:8080 \\
                   HTTP_ENDLESS_COOKIE:0.0.0.0:8088 
 
 ## AUTHOR
@@ -118,15 +118,38 @@ class Tarpit:
         return handler
 
     async def start_server(self, host="0.0.0.0", port="8080"):
+        """Start server
+        Caller should set self._handler before call this method
+        """
         return await asyncio.start_server(self.get_handler(host, port), host, port)
 
     def __init__(self) -> None:
-        self.rate = 0
+        self.rate = None
         self.logger = logging.getLogger(self.protocol)
+
+class MiscTarpit(Tarpit):
+    protocol = "misc"
+
+    async def _handler_endless_cookie(self, _reader, tarpit_writer: TarpitWriter):
+        await tarpit_writer.write(self.HTTP_START_LINE_200)
+        while True:
+            header = b"Set-Cookie: "
+            await tarpit_writer.write(header)
+            header = b"%x=%x\r\n" % (
+                random.randint(0, 2**32),
+                random.randint(0, 2**32),
+            )
+            await tarpit_writer.write(header)
+
+    async def start_server(self, host="0.0.0.0", port="8080"):
+        return await asyncio.start_server(self.get_handler(host, port), host, port)
+
+    def __init__(self) -> None:
+        super().__init__()
 
 
 class HttpTarpit(Tarpit):
-    protocol = "HTTP"
+    protocol = "http"
 
     HTTP_START_LINE_200 = b"HTTP/1.1 200 OK\r\n"
 
@@ -141,35 +164,64 @@ class HttpTarpit(Tarpit):
             )
             await tarpit_writer.write(header)
 
-    async def _handler_deflate_bomb(self, _reader, tarpit_writer: TarpitWriter):
-        await tarpit_writer.write(self.HTTP_START_LINE_200)
-        await tarpit_writer.write(
-            b"Content-Type: text/html; charset=UTF-8\r\nContent-Encoding: deflate\r\n"
-        )
-        await tarpit_writer.write(
-            b"Content-Length: %i\r\n\r\n" % len(self._deflate_bomb)
-        )
-        await tarpit_writer.write(self._deflate_bomb)
-        self.logger.info("MISC:Bomb sent")
-        tarpit_writer.close()
-        pass
+    def _get_handler_deflate(self, data):
+        async def fun(_reader, tarpit_writer: TarpitWriter):
+            await tarpit_writer.write(self.HTTP_START_LINE_200)
+            await tarpit_writer.write(
+                b"Content-Type: text/html; charset=UTF-8\r\nContent-Encoding: deflate\r\n"
+            )
+            await tarpit_writer.write(
+                b"Content-Length: %i\r\n\r\n" % len(data)
+            )
+            await tarpit_writer.write(data)
+            self.logger.info("MISC:deflate data sent")
+            tarpit_writer.close()
+        return fun
 
-    def _generate_deflate_bomb(self):
+    def _generate_deflate_html_bomb(self):
         import zlib
 
-        self.logger.info("MISC:Creating bomb...")
+        self.logger.info("MISC:creating bomb...")
         # Don't use gzip, because gzip container contains uncompressed length
         # zlib stream have no uncompressed length, force client to decompress it
         # And they are SAME encodings, just difference in container format
         t = zlib.compressobj(9)
         bomb = bytearray()
+        # To successfully make Firefox and Chrome stuck, only zeroes is not enough
+        bomb.extend(t.compress(b"<!DOCTYPE html><html><body>"))
+        bomb.extend(t.compress(bytes(1024**2)))
+        bomb.extend(t.compress(b"<div>SUPER</a><em>HOT</em></span>" * 102400))
+        bomb.extend(
+            t.compress(
+                b'<table></div><a>SUPER<tr><td rowspan="201" colspan="1">HOT</dd>'
+                * 51200
+            )
+        )
         # The Maximum Compression Factor of zlib is about 1000:1
-        # so 1024**3 means 1 MB after compression
+        # so 1024**2 means 1 MB original data, 1 KB after compression
         # According to https://www.zlib.net/zlib_tech.html
-        bomb.extend(t.compress(bytes(1024**3)))
+        # for _ in range(0, 1000):
+        #     bomb.extend(t.compress(bytes(1024**2)))
+        bomb.extend(t.compress(b"<table>MORE!</dd>" * 5))
         bomb.extend(t.flush())
-        self.logger.info(f"MISC:Bomb created:{int(len(bomb)/1024):d}kb")
-        self._deflate_bomb = bomb
+        self.logger.info(f"MISC:html bomb created:{int(len(bomb)/1024):d}kb")
+        self._deflate_html_bomb = bomb
+
+    def _generate_deflate_size_bomb(self):
+        self._generate_deflate_html_bomb()
+        import zlib
+
+        t = zlib.compressobj(9)
+        bomb = self._deflate_html_bomb.copy()
+        # The Maximum Compression Factor of zlib is about 1000:1
+        # so 1024**2 means 1 MB original data, 1 KB after compression
+        # According to https://www.zlib.net/zlib_tech.html
+        for _ in range(0, 1000):
+            bomb.extend(t.compress(bytes(1024**2)))
+        bomb.extend(t.compress(b"<table>MORE!</dd>" * 5))
+        bomb.extend(t.flush())
+        self._deflate_size_bomb = bomb
+        self.logger.info(f"MISC:deflate bomb created:{int(len(bomb)/1024):d}kb")
 
     def __init__(self, method="endless_cookie", coro_limit=32, rate=None) -> None:
         super().__init__()
@@ -179,12 +231,20 @@ class HttpTarpit(Tarpit):
                 if not rate:
                     self.rate = -2
                 self._handler = self._handler_endless_cookie
-            case "deflate_bomb":
+            case "deflate_size_bomb":
                 if not rate:
-                    self.rate = 512
-                self._generate_deflate_bomb()
-                self._handler = self._handler_deflate_bomb
+                    self.rate = 1024
+                self._generate_deflate_size_bomb()
+                self._handler = self._get_handler_deflate(self._deflate_size_bomb)
+            case "deflate_html_bomb":
+                if not rate:
+                    self.rate = 1024
+                self._generate_deflate_html_bomb()
+                self._handler = self._get_handler_deflate(self._deflate_html_bomb)
+        if not self.rate:
+            self.rate = rate
         self.sem = asyncio.Semaphore(coro_limit)
+        self.logger.info(f"MISC:Server started:{self.rate}")
         # limit client amount
 
 
@@ -195,22 +255,20 @@ async def async_main(args):
         match p[0]:
             case "http_endless_cookie":
                 pit = HttpTarpit("endless_cookie", rate=args.rate)
-            case "http_deflate_bomb":
-                pit = HttpTarpit("deflate_bomb", rate=args.rate)
+            case "http_deflate_html_bomb":
+                pit = HttpTarpit("deflate_html_bomb", rate=args.rate)
+            case "http_deflate_size_bomb":
+                pit = HttpTarpit("deflate_size_bomb", rate=args.rate)
+            case other:
+                print(f"service {other} is not exist!")
+                exit()
+            
         bind = p[2].partition(":")
         server.append(pit.start_server(host=bind[0], port=bind[2]))
-        logging.info(f"BIND:{p[0]}:{p[2]}")
+        logging.info(f"BIND:{p[0]}:{p[2]}:{args.rate}")
     await asyncio.gather(*server)
     while True:
         await asyncio.sleep(3600)
-
-    exit()
-
-    pit = HttpTarpit("deflate_bomb")
-    s2 = await pit.start_server("0.0.0.0", 8081)
-    async with s1, s2:
-        while True:
-            await asyncio.sleep(3600)
 
 
 def display_manual_unix(name):
@@ -231,7 +289,12 @@ def main():
         "-c", "--config", help="load configuration file", action="store"
     )
     parser.add_argument(
-        "-r", "--rate", help="set data transfer rate limit", action="store", type=int
+        "-r",
+        "--rate",
+        help="set data transfer rate limit",
+        action="store",
+        type=int,
+        default=None,
     )
     parser.add_argument(
         "-s",
