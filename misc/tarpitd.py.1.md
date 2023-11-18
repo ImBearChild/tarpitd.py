@@ -1,10 +1,10 @@
 ## NAME
 
-tarpitd - a daemon making a port into tarpit
+tarpitd.py - a daemon making a port into tarpit
 
 ## SYNOPSIS
 
-    tarpitd.py [-h] [-v] [-c CONFIG] [-r RATE] 
+    tarpitd.py [-h] [-v] [-r RATE] 
         [-s SERVICE:HOST:PORT [SERVICE:HOST:PORT ...]] [--manual]
 
 ## DESCRIPTION

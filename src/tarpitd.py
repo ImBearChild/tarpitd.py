@@ -97,6 +97,9 @@ class Tarpit:
     protocol = "None"
 
     def get_handler(self, host, port):
+        """This closure is used to pass listening address and port to
+        handler running in asyncio"""
+
         async def handler(reader, writer: asyncio.StreamWriter):
             async with self.sem:
                 try:
@@ -123,29 +126,52 @@ class Tarpit:
         """
         return await asyncio.start_server(self.get_handler(host, port), host, port)
 
-    def __init__(self) -> None:
-        self.rate = None
+    def __init__(self, coro_limit=32, rate=None) -> None:
+        self._handler = None
+        self.rate = rate
         self.logger = logging.getLogger(self.protocol)
+        self.sem = asyncio.Semaphore(coro_limit)
+
 
 class MiscTarpit(Tarpit):
     protocol = "misc"
 
-    async def _handler_endless_cookie(self, _reader, tarpit_writer: TarpitWriter):
-        await tarpit_writer.write(self.HTTP_START_LINE_200)
+    # cSpell:disable
+    # These is a joke
+    # https://github.com/HanaYabuki/aminoac
+    AMINOCESE_DICT = {
+        "Egsh Aminoas": "en:Song of Aminoas",
+        "Aminoas": "en:Aminoas",
+        "Ama Cinoas": "en:my beautiful homeland",
+        "Yegm Laminoas": "en:no matter when, my heart yearns for you",
+    }
+
+    _aminocese_cache = []
+
+    async def _handler_egsh_aminoas(self, _reader, tarpit_writer: TarpitWriter):
         while True:
-            header = b"Set-Cookie: "
+            a = random.choice(self._aminocese_cache)
+            header = a.encode() + b"\r\n"
             await tarpit_writer.write(header)
-            header = b"%x=%x\r\n" % (
-                random.randint(0, 2**32),
-                random.randint(0, 2**32),
-            )
-            await tarpit_writer.write(header)
+
+    # cSpell:enable
 
     async def start_server(self, host="0.0.0.0", port="8080"):
         return await asyncio.start_server(self.get_handler(host, port), host, port)
 
-    def __init__(self) -> None:
+    def __init__(self, method="egsh_aminoas", coro_limit=32, rate=None) -> None:
         super().__init__()
+        match method:
+            case "egsh_aminoas":
+                if not rate:
+                    self.rate = -2
+                # make a list first, so we don't generate it for every connection
+                self._aminocese_cache = list(self.AMINOCESE_DICT.keys())
+                self._handler = self._handler_egsh_aminoas
+            case other:
+                raise NotImplementedError
+        if not self.rate:
+            self.rate = rate
 
 
 class HttpTarpit(Tarpit):
@@ -170,12 +196,11 @@ class HttpTarpit(Tarpit):
             await tarpit_writer.write(
                 b"Content-Type: text/html; charset=UTF-8\r\nContent-Encoding: deflate\r\n"
             )
-            await tarpit_writer.write(
-                b"Content-Length: %i\r\n\r\n" % len(data)
-            )
+            await tarpit_writer.write(b"Content-Length: %i\r\n\r\n" % len(data))
             await tarpit_writer.write(data)
             self.logger.info("MISC:deflate data sent")
             tarpit_writer.close()
+
         return fun
 
     def _generate_deflate_html_bomb(self):
@@ -225,7 +250,6 @@ class HttpTarpit(Tarpit):
 
     def __init__(self, method="endless_cookie", coro_limit=32, rate=None) -> None:
         super().__init__()
-        self._handler = None
         match method:
             case "endless_cookie":
                 if not rate:
@@ -241,9 +265,10 @@ class HttpTarpit(Tarpit):
                     self.rate = 1024
                 self._generate_deflate_html_bomb()
                 self._handler = self._get_handler_deflate(self._deflate_html_bomb)
+            case other:
+                raise NotImplementedError
         if not self.rate:
             self.rate = rate
-        self.sem = asyncio.Semaphore(coro_limit)
         self.logger.info(f"MISC:Server started:{self.rate}")
         # limit client amount
 
@@ -259,10 +284,12 @@ async def async_main(args):
                 pit = HttpTarpit("deflate_html_bomb", rate=args.rate)
             case "http_deflate_size_bomb":
                 pit = HttpTarpit("deflate_size_bomb", rate=args.rate)
+            case "misc_egsh_aminoas":
+                pit = MiscTarpit("egsh_aminoas", rate=args.rate)
             case other:
                 print(f"service {other} is not exist!")
                 exit()
-            
+
         bind = p[2].partition(":")
         server.append(pit.start_server(host=bind[0], port=bind[2]))
         logging.info(f"BIND:{p[0]}:{p[2]}:{args.rate}")
@@ -285,9 +312,9 @@ def main():
     parser.add_argument(
         "-v", "--verbose", help="increase output verbosity\nss", action="store_true"
     )
-    parser.add_argument(
-        "-c", "--config", help="load configuration file", action="store"
-    )
+    # parser.add_argument(
+    #     "-c", "--config", help="load configuration file", action="store"
+    # )
     parser.add_argument(
         "-r",
         "--rate",
