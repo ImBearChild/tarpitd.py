@@ -23,6 +23,13 @@ You don't need to run `pip install` or `git clone`. Just download the script cal
 
 If you want it act like an executable binary, put it inside your `$PATH` (usually `/usr/local/bin` or `~/.local/bin`), and make it executable by `chmod +x`.
 
+In case that you still want an installation with pip:
+
+```
+pip install \
+git+https://github.com/ImBearChild/tarpitd.py.git@main
+```
+
 ## Document
 
 For online usage document, please refer to [tarpitd.py(7)](./misc/tarpitd.py.7.md) and [tarpitd.py(1)](./misc/tarpitd.py.1.md).
