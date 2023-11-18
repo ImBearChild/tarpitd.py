@@ -17,13 +17,14 @@ connect to it. For more information on tarpitd.py, please refer to
 
 ## OPTIONS
 
-`-s SERVICE:HOST:PORT [SERVICE:HOST:PORT ...]`
-`--serve SERVICE:HOST:PORT [SERVICE:HOST:PORT ...]`
+#### `-s, --serve SERVICE:HOST:PORT [SERVICE:HOST:PORT ...]`  
 
 Start a service on specified host and port. 
-The name of service is case-insensitive.
+The name of service is case-insensitive. For the full list of 
+supportedservices, please refer to 
+[tarpitd.py(7)](./tarpitd.py.7.md)
 
-`-r RATE, --rate RATE`
+#### `-r RATE, --rate RATE`
 
 Set data transfer rate limit.
 Positive value limit transfer speed to RATE *byte* per second.

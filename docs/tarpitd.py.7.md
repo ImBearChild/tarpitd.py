@@ -57,8 +57,8 @@ Tested with client: Firefox, Chromium, curl
 
 Making the client hang by sending an endless HTTP header lines of
 `Set-Cookie:`. Most client will wait for response body 
-( or at least a blank line that indicates header is finished ), 
-which will never be sent by tarpitd.py.
+(or at least a blank line that indicates header is finished), 
+which will never be sent by tarpitd.py. 
 
 ### HTTP_DEFLATE_HTML_BOMB
 
@@ -66,10 +66,13 @@ Tested with client: Firefox, Chromium
 
 A badly formed HTML compressed by deflate (zlib) will be sent by 
 tarpitd.py. It's so bad that most client will waste a lot of time
-(more precisely, CPU time ) on parsing it.
+(more precisely, CPU time) on parsing it.
 
-Some client won't bother to prase HTML, so this may not useful
-for them.
+Some client won't bother to parse HTML, so this may not useful
+for them. Content sent by this service is always compressed with
+deflate algorithm, no matter client support it or not.
+Because it's pointless to serve uncompressed garbage, and most
+clients support deflate algorithm.
 
 ### HTTP_DEFLATE_SIZE_BOMB
 
@@ -78,6 +81,8 @@ Tested with client: Firefox, Chromium, curl
 Feeding client with a lot of compressed zero. The current 
 implementation sends a compressed 1 MB file, which is approximately 
 1 GB decompressed, plus some invalid HTML code to trick client.
+And deflate compress algorithm has its maximum compression 
+rate limit, at 1030.3:1.
 
 Curl won't decompress content by default. If you want to test this 
 with curl, please add `--compressed` option to it, and make sure you
