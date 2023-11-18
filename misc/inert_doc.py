@@ -26,7 +26,7 @@ for manual_name in manpages:
     if start != -1 and end != -1 and start < end:
 
         # 生成一个新的内容，可以根据需要修改
-        new_content = open(f"./misc/{manual_name}.md","r").read()
+        new_content = open(f"./docs/{manual_name}.md","r").read()
 
         # 用新的内容替换原来的内容
         content = content[:start] + f"\n_MANUAL_{manual_name.upper().replace(".","_")}=r\"\"\"\n" + new_content + "\n"+ "\"\"\"" +"\n" +content[end:]
