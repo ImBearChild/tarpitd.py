@@ -32,7 +32,7 @@ git+https://github.com/ImBearChild/tarpitd.py.git@main
 
 ## Document
 
-For online usage document, please refer to [tarpitd.py(7)](./misc/tarpitd.py.7.md) and [tarpitd.py(1)](./misc/tarpitd.py.1.md).
+For online usage document, please refer to [tarpitd.py(7)](./docs/tarpitd.py.7.md) and [tarpitd.py(1)](./docs/tarpitd.py.1.md).
 
 Or you can refer to embedded manual page, if you have the script downloaded:
 
