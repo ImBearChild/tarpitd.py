@@ -2,14 +2,31 @@
 name = "tarpitd"
 version = "0.0.1"
 dependencies = []
+authors = [{ name = "Nianqing Yao", email = "imbeatchild@outlook.com" }]
+description = "A daemon making a port into tarpit"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
+    "Operating System :: OS Independent",
+    "Topic :: System :: Networking",
+    "Topic :: Internet",
+]
+
+[project.urls]
+Homepage = "https://github.com/ImBearChild/tarpitd.py"
+Issues = "https://github.com/ImBearChild/tarpitd.py/issues"
 
 [build-system]
-requires = ["setuptools >= 61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project.scripts]
 "tarpitd.py" = "tarpitd_import_guard:main_cli"
 
-[tool.setuptools.packages.find]
-# All the following settings are optional:
-where = ["src"] 
+[tool.hatch.build]
+include = [
+  "src/*.py",
+  "/tests",
+]
