@@ -29,5 +29,4 @@ build-backend = "hatchling.build"
 include = [
   "src/*.py",
   "/tests",
-  "/docs"
 ]
