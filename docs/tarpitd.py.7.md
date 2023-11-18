@@ -49,9 +49,34 @@ clients may handle the same response
 differently. So even for one protocol, there may be more than 
 one `service` in tarpitd.py correspond to it.
 
+### Resource consumption
+
+If implemented correctly, a tarpit consumes fewer resources than its 
+"normal" counterpart. Usually, a real server program will process 
+request from client and return response to it. But a tarpit don't 
+need to implement these parts.
+
+For example, real HTTP server will parse HTTP request and call CGI 
+(Python, PHP...) to generate a valid response. But tarpitd.py will
+directly send a pre-generated content or several random bytes.
+
+The reality is that when searching online for "how much memory does 
+Apache HTTPd require at least", most answers are hundreds of MB or 
+several GB. But tarpitd.py just need 2.5 MB of ram to serve an HTML 
+bomb, and 4/5 of memory is used by the bomb itself. 
+
+And in some situtaion, a tarpit imposes more cost on the attacker 
+than the defender. The HTML bomb is an good exmaple for this. If an 
+attacker chooses to parse it, he will spend more time than defender.
+And if the attacker is only interested in HTTP header, the time the 
+defender spend on generate the bomb is wasted. 
+
+
 ## SERVICES
 
-### HTTP_ENDLESS_COOKIE
+### HTTP
+
+#### HTTP_ENDLESS_COOKIE
 
 Tested with client: Firefox, Chromium, curl
 
@@ -60,7 +85,7 @@ Making the client hang by sending an endless HTTP header lines of
 (or at least a blank line that indicates header is finished), 
 which will never be sent by tarpitd.py. 
 
-### HTTP_DEFLATE_HTML_BOMB
+#### HTTP_DEFLATE_HTML_BOMB
 
 Tested with client: Firefox, Chromium
 
@@ -71,10 +96,11 @@ tarpitd.py. It's so bad that most client will waste a lot of time
 Some client won't bother to parse HTML, so this may not useful
 for them. Content sent by this service is always compressed with
 deflate algorithm, no matter client support it or not.
-Because it's pointless to serve uncompressed garbage, and most
+Because it's pointless to serve uncompressed garbage, which
+may cause huge potential waste of bandwidth, and most
 clients support deflate algorithm.
 
-### HTTP_DEFLATE_SIZE_BOMB
+#### HTTP_DEFLATE_SIZE_BOMB
 
 Tested with client: Firefox, Chromium, curl
 
@@ -88,7 +114,9 @@ Curl won't decompress content by default. If you want to test this
 with curl, please add `--compressed` option to it, and make sure you
 have enough space for decompressed data.
 
-### MISC_ENDLESSH
+### MISC
+
+#### MISC_ENDLESSH
 
 Have been tested with client: openssh
 
@@ -96,13 +124,13 @@ Endlessh is a famous ssh tarpit. It keeps SSH clients locked up for
 hours or even days at a time by sending endless banners. Despite its 
 name, technically this is not SSH, but an endless banner sender.
 Endless does implement no part of the SSH protocol, and no port 
-scanner will think it is SSH ( at least nmap and censys don't mark 
+scanner will think it is SSH (at least nmap and censys don't mark 
 this as SSH).
 
 The current implementation in tarpitd.py is just an alias of 
 MISC_EGSH_AMINOAS.
 
-### MISC_EGSH_AMINOAS
+#### MISC_EGSH_AMINOAS
 
 Have been tested with client: openssh
 
