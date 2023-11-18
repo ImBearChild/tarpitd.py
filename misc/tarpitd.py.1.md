@@ -9,9 +9,9 @@ tarpitd.py - a daemon making a port into tarpit
 
 ## DESCRIPTION
 
-Tarpitd.py (tarpit daemon) is a python program that set up network
-tarpits. A tarpit is a service on a computer system (usually a
-server) that purposely delays incoming connections.
+Tarpitd.py will listen on specified ports and trouble clients that 
+connect to it. For more information on tarpitd.py, please refer to 
+[tarpitd-service(7)](./tarpitd-serivce.7.md)
 
 ## EXAMPLES
 
@@ -22,7 +22,7 @@ Print this manual:
 Start an endless HTTP tarpit on 0.0.0.0:8080, send a byte every two
 seconds:
 
-    tarpitd.py -r2 -s HTTP_ENDLESS_COOKIE:0.0.0.0:8088
+    tarpitd.py -r-2 -s HTTP_ENDLESS_COOKIE:0.0.0.0:8088
 
 Start two different HTTP tarpit at the same time:
 

@@ -1,21 +1,21 @@
 # =============================================================================
 # Manual: tarpitd.py.1
 # -----------------------------------------------------------------------------
-_MANUAL_TARPITD_PY_1 = """
+_MANUAL_TARPITD_PY_1="""
 ## NAME
 
-tarpitd - a daemon making a port into tarpit
+tarpitd.py - a daemon making a port into tarpit
 
 ## SYNOPSIS
 
-    tarpitd.py [-h] [-v] [-c CONFIG] [-r RATE] 
+    tarpitd.py [-h] [-v] [-r RATE] 
         [-s SERVICE:HOST:PORT [SERVICE:HOST:PORT ...]] [--manual]
 
 ## DESCRIPTION
 
-Tarpitd.py (tarpit daemon) is a python program that set up network
-tarpits. A tarpit is a service on a computer system (usually a
-server) that purposely delays incoming connections.
+Tarpitd.py will listen on specified ports and trouble clients that 
+connect to it. For more information on tarpitd.py, please refer to 
+[tarpitd-service(7)](./tarpitd-serivce.7.md)
 
 ## EXAMPLES
 
@@ -26,11 +26,11 @@ Print this manual:
 Start an endless HTTP tarpit on 0.0.0.0:8080, send a byte every two
 seconds:
 
-    tarpitd.py -r2 -s HTTP_ENDLESS_COOKIE:0.0.0.0:8088
+    tarpitd.py -r-2 -s HTTP_ENDLESS_COOKIE:0.0.0.0:8088
 
 Start two different HTTP tarpit at the same time:
 
-    tarpitd.py -s http_deflate_size_bomb:0.0.0.0:8080 \\
+    tarpitd.py -s http_deflate_bomb:0.0.0.0:8080 \\
                   HTTP_ENDLESS_COOKIE:0.0.0.0:8088 
 
 ## AUTHOR
@@ -153,6 +153,7 @@ class MiscTarpit(Tarpit):
             a = random.choice(self._aminocese_cache)
             header = a.encode() + b"\r\n"
             await tarpit_writer.write(header)
+            self.logger.info(a)
 
     # cSpell:enable
 
