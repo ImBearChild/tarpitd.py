@@ -4,11 +4,11 @@ version = "0.0.1"
 dependencies = []
 
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project.scripts]
-"tarpitd" = "tarpitd:main"
+"tarpitd.py" = "tarpitd:main_cli"
 
 [tool.setuptools.packages.find]
 # All the following settings are optional:

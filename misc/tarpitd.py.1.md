@@ -11,7 +11,9 @@ tarpitd.py - a daemon making a port into tarpit
 
 Tarpitd.py will listen on specified ports and trouble clients that 
 connect to it. For more information on tarpitd.py, please refer to 
-[tarpitd-service(7)](./tarpitd-serivce.7.md)
+[tarpitd.py(7)](./tarpitd.py.7.md), or use:
+
+    tarpitd.py --manual tarpitd.py.7
 
 ## EXAMPLES
 
