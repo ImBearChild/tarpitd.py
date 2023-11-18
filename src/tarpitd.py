@@ -1,3 +1,46 @@
+# =============================================================================
+# Manual: tarpitd.py.1
+# -----------------------------------------------------------------------------
+_MANUAL_TARPITD_PY_1 = """
+## NAME
+
+tarpitd - a daemon making a port into tarpit
+
+## SYNOPSIS
+
+    tarpitd.py [-h] [-v] [-c CONFIG] [-r RATE] 
+        [-s SERVICE:HOST:PORT [SERVICE:HOST:PORT ...]] [--manual]
+
+## DESCRIPTION
+
+Tarpitd.py (tarpit daemon) is a python program that set up network
+tarpits. A tarpit is a service on a computer system (usually a
+server) that purposely delays incoming connections.
+
+## EXAMPLES
+
+Print this manual:
+
+    tarpitd.py --manual
+
+Start an endless HTTP tarpit on 0.0.0.0:8080, send a byte every two
+seconds:
+
+    tarpitd.py -r2 -s HTTP_ENDLESS_COOKIE:0.0.0.0:8088
+
+Start two different HTTP tarpit at the same time:
+
+    tarpitd.py -s http_deflate_bomb:0.0.0.0:8080 \\
+                  HTTP_ENDLESS_COOKIE:0.0.0.0:8088 
+
+## AUTHOR
+
+Nianqing Yao [imbearchild at outlook.com]
+
+"""
+# =============================================================================
+
+
 __version__ = "0.1.0"
 
 import asyncio
@@ -128,18 +171,21 @@ class HttpTarpit(Tarpit):
         self.logger.info(f"MISC:Bomb created:{int(len(bomb)/1024):d}kb")
         self._deflate_bomb = bomb
 
-    def __init__(self, method="endless_cookie", coro_limit=2, rate=0) -> None:
+    def __init__(self, method="endless_cookie", coro_limit=32, rate=None) -> None:
         super().__init__()
         self._handler = None
         match method:
             case "endless_cookie":
+                if not rate:
+                    self.rate = -2
                 self._handler = self._handler_endless_cookie
             case "deflate_bomb":
+                if not rate:
+                    self.rate = 512
                 self._generate_deflate_bomb()
                 self._handler = self._handler_deflate_bomb
         self.sem = asyncio.Semaphore(coro_limit)
         # limit client amount
-        self.rate = rate
 
 
 async def async_main(args):
@@ -165,6 +211,12 @@ async def async_main(args):
     async with s1, s2:
         while True:
             await asyncio.sleep(3600)
+
+
+def display_manual_unix(name):
+    import subprocess
+
+    subprocess.run("less", input=_MANUAL_TARPITD_PY_1.encode())
 
 
 def main():
@@ -196,7 +248,7 @@ def main():
     args = parser.parse_args()
 
     if args.manual:
-        print(__manual__)
+        display_manual_unix("")
         pass
     elif args.serve:
         asyncio.run(async_main(args))
