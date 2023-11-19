@@ -15,7 +15,7 @@ connect to it.
 ### What is a "tarpit"
 
 According to Wikipedia: A tarpit is a service on 
-a computer system (usually aserver) that purposely delays 
+a computer system (usually a server) that purposely delays 
 incoming connections. The concept is analogous with a tar pit, in
 which animals can get bogged down and slowly sink under the surface,
 like in a swamp. 
@@ -27,7 +27,7 @@ client not work properly, slow them down or make them crash.
 ### Why I need a "tarpit"
 
 This is actually a good thing in some situations.
-For example, an evil ssh client may connect to port 22,and tries to 
+For example, an evil ssh client may connect to port 22, and tries to 
 log with weak passwords. Or evil web crawlers can collect information
 from your server, providing help for cracking your server.
 
@@ -45,9 +45,9 @@ to the malicious client, overloading its HTML parser
 (`HTTP_DEFLATE_HTML_BOMB`). 
 
 Different responses have different consequences, and different 
-clients may handle the same response 
-differently. So even for one protocol, there may be more than 
-one `service` in tarpitd.py correspond to it.
+clients may handle the same response differently. So even for one 
+protocol, there may be more than one `service` in tarpitd.py 
+correspond to it.
 
 ### Resource consumption
 
@@ -56,8 +56,8 @@ If implemented correctly, a tarpit consumes fewer resources than its
 request from client and return response to it. But a tarpit don't 
 need to implement these parts.
 
-For example, real HTTP server will parse HTTP request and call CGI 
-(Python, PHP...) to generate a valid response. But tarpitd.py will
+For example, a real HTTP server will parse HTTP request and call CGI 
+(Python, PHP...) to generate a valid response. But tarpitd.py will 
 directly send a pre-generated content or several random bytes.
 
 The reality is that when searching online for "how much memory does 
@@ -69,8 +69,7 @@ And in some situtaion, a tarpit imposes more cost on the attacker
 than the defender. The HTML bomb is an good exmaple for this. If an 
 attacker chooses to parse it, he will spend more time than defender.
 And if the attacker is only interested in HTTP header, the time the 
-defender spend on generate the bomb is wasted. 
-
+defender spend on generating the bomb is wasted. 
 
 ## SERVICES
 

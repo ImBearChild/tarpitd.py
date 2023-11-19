@@ -26,7 +26,7 @@ connect to it. For more information on tarpitd.py, please refer to
 
 Start a service on specified host and port. 
 The name of service is case-insensitive. For the full list of 
-supportedservices, please refer to 
+supported services, please refer to 
 [tarpitd.py(7)](./tarpitd.py.7.md)
 
 #### `-r RATE, --rate RATE`
@@ -90,7 +90,7 @@ connect to it.
 ### What is a "tarpit"
 
 According to Wikipedia: A tarpit is a service on 
-a computer system (usually aserver) that purposely delays 
+a computer system (usually a server) that purposely delays 
 incoming connections. The concept is analogous with a tar pit, in
 which animals can get bogged down and slowly sink under the surface,
 like in a swamp. 
@@ -102,7 +102,7 @@ client not work properly, slow them down or make them crash.
 ### Why I need a "tarpit"
 
 This is actually a good thing in some situations.
-For example, an evil ssh client may connect to port 22,and tries to 
+For example, an evil ssh client may connect to port 22, and tries to 
 log with weak passwords. Or evil web crawlers can collect information
 from your server, providing help for cracking your server.
 
@@ -120,9 +120,9 @@ to the malicious client, overloading its HTML parser
 (`HTTP_DEFLATE_HTML_BOMB`). 
 
 Different responses have different consequences, and different 
-clients may handle the same response 
-differently. So even for one protocol, there may be more than 
-one `service` in tarpitd.py correspond to it.
+clients may handle the same response differently. So even for one 
+protocol, there may be more than one `service` in tarpitd.py 
+correspond to it.
 
 ### Resource consumption
 
@@ -131,8 +131,8 @@ If implemented correctly, a tarpit consumes fewer resources than its
 request from client and return response to it. But a tarpit don't 
 need to implement these parts.
 
-For example, real HTTP server will parse HTTP request and call CGI 
-(Python, PHP...) to generate a valid response. But tarpitd.py will
+For example, a real HTTP server will parse HTTP request and call CGI 
+(Python, PHP...) to generate a valid response. But tarpitd.py will 
 directly send a pre-generated content or several random bytes.
 
 The reality is that when searching online for "how much memory does 
@@ -144,8 +144,7 @@ And in some situtaion, a tarpit imposes more cost on the attacker
 than the defender. The HTML bomb is an good exmaple for this. If an 
 attacker chooses to parse it, he will spend more time than defender.
 And if the attacker is only interested in HTTP header, the time the 
-defender spend on generate the bomb is wasted. 
-
+defender spend on generating the bomb is wasted. 
 
 ## SERVICES
 
@@ -303,11 +302,12 @@ class Tarpit:
 
         return handler
 
-    async def start_server(self, host="0.0.0.0", port="8080"):
-        """Start server
+    async def create_server(self, host="0.0.0.0", port="8080"):
+        """
         Caller should set self._handler before call this method
         """
-        return await asyncio.start_server(self.get_handler(host, port), host, port)
+        s = await asyncio.start_server(self.get_handler(host, port), host, port)
+        return s
 
     def __init__(self, coro_limit=32, rate=None) -> None:
         self._handler = None
@@ -339,9 +339,6 @@ class MiscTarpit(Tarpit):
             self.logger.info(a)
 
     # cSpell:enable
-
-    async def start_server(self, host="0.0.0.0", port="8080"):
-        return await asyncio.start_server(self.get_handler(host, port), host, port)
 
     def __init__(self, method="egsh_aminoas", coro_limit=32, rate=None) -> None:
         super().__init__()
@@ -456,8 +453,21 @@ class HttpTarpit(Tarpit):
         self.logger.info(f"MISC:Server started:{self.rate}")
         # limit client amount
 
+async def async_run_server(server):
+    async with asyncio.TaskGroup() as tg:
+        for i in server:
+            s = (await i)
+            addr = s.sockets[0].getsockname()
+            logging.debug(f'asyncio serving on {addr}')
+            tg.create_task(s.serve_forever())
+        
 
-async def async_main(args):
+def run_server(server):
+    with asyncio.Runner() as runner:
+        runner.run(async_run_server(server))
+
+
+def async_main(args):
     server = []
     for i in args.serve:
         p = i.casefold().partition(":")
@@ -475,13 +485,11 @@ async def async_main(args):
             case other:
                 print(f"service {other} is not exist!")
                 exit()
-
         bind = p[2].partition(":")
-        server.append(pit.start_server(host=bind[0], port=bind[2]))
+        server.append(pit.create_server(host=bind[0], port=bind[2]))
         logging.info(f"BIND:{p[0]}:{p[2]}:{args.rate}")
-    await asyncio.gather(*server)
-    while True:
-        await asyncio.sleep(3600)
+    run_server(server)
+
 
 
 def display_manual_unix(name):
@@ -494,7 +502,7 @@ def display_manual_unix(name):
 
 
 def main_cli():
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
     import argparse
 
     parser = argparse.ArgumentParser(prog="tarpitd.py")
@@ -528,7 +536,7 @@ def main_cli():
         display_manual_unix(args.manual)
         pass
     elif args.serve:
-        asyncio.run(async_main(args))
+        async_main(args)
     else:
         parser.parse_args(["--help"])
 
