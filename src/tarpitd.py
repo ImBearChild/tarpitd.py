@@ -283,15 +283,24 @@ class BaseTarpit:
     This class should not be used directly.
     """
     def _setup(self):
+        """
+        Setting up the Tarpit
+
+        Classes that inherit this Class can implement this method 
+        as an alternative to overloading __init__. 
+        """
         return
 
-    def connection_report(self):
-        pass
-
-    def log_client(self, event, source, destination):
-        self.logger.info(f"client_trace:{event}:{source} => {destination}")
+    def log_client(self, event, source, destination , comment=None):
+        self.logger.info(f"client_trace:{event}:[ {source} > {destination} ]:{comment}")
 
     async def _real_handler(self, reader, writer: TarpitWriter):
+        """
+        Callback for providing service
+
+        Classes that inherit this Class SHOULD overload this method.
+        And this method is an example of echo server.
+        """
         print()
         print("This is a test 'echo' service!")
         data = await reader.read(100)
@@ -324,7 +333,7 @@ class BaseTarpit:
                     ConnectionResetError,
                 ) as e:
                     self.log_client(
-                        "close", f"{peername[0]}:{peername[1]}", f"{source_hint}:{e}"
+                        "close", f"{peername[0]}:{peername[1]}", f"{source_hint}",f"{e}"
                     )
 
         return handler
@@ -338,14 +347,16 @@ class BaseTarpit:
         This function won't start the server immediately.
         The user should await on Server.start_serving() or
         Server.serve_forever() to make the server to start accepting connections.
-
-        Caller should set self._real_handler before call this method
         """
         return await asyncio.start_server(
             self.wrap_handler(f"{host}:{port}", self._real_handler), host, port
         )
 
     def __init__(self, client_log=True, max_clients=32, rate_limit=16, **extra_options) -> None:
+        """
+        Classes that inherit this Class SHOULD NOT overload this method.
+        **extra_options can be used to transfer extra argument
+        """
         self.logger = logging.getLogger(__name__)
         self.sem = asyncio.Semaphore(max_clients)
         self.rate_limit = rate_limit
@@ -471,13 +482,12 @@ async def async_run_server(server):
             logging.debug(f"asyncio serving on {addr}")
             tg.create_task(s.serve_forever())
 
-
 def run_server(server):
     with asyncio.Runner() as runner:
         runner.run(async_run_server(server))
 
 
-def async_main(args):
+def run_from_cli(args):
     server = []
     for i in args.serve:
         p = i.casefold().partition(":")
@@ -497,7 +507,7 @@ def async_main(args):
                 exit()
         bind = p[2].partition(":")
         server.append(pit.create_server(host=bind[0], port=bind[2]))
-        logging.info(f"BIND:{p[0]}:{p[2]}:{args.rate_limit}")
+        logging.info(f"tarpitd is serving {p[0]} on {p[2]} with speed limit {args.rate_limit}")
     run_server(server)
 
 
@@ -514,14 +524,14 @@ def display_manual_unix(name):
 def main_cli():
     logging.basicConfig(
         level=logging.DEBUG,
-        format=(
-            #"%(name)s:%(levelname)s:%(message)s:"
-            "{"
-            '"created":%(created)f,"levelname":"%(levelname)s","funcName":"%(funcName)s",'
-            '"message":"%(message)s",'
-            '"module":"%(module)s","lineno":"%(lineno)d"'
-            "}"
-        ),
+        # format=(
+        #     #"%(name)s:%(levelname)s:%(message)s:"
+        #     "{"
+        #     '"message":"%(message)s",'
+        #     '"created":%(created)f,"levelname":"%(levelname)s","funcName":"%(funcName)s",'
+        #     '"module":"%(module)s","lineno":"%(lineno)d"'
+        #     "}"
+        # ),
     )
     import argparse
 
@@ -562,7 +572,7 @@ def main_cli():
         display_manual_unix(args.manual)
         pass
     elif args.serve:
-        async_main(args)
+        run_from_cli(args)
     else:
         parser.parse_args(["--help"])
 
