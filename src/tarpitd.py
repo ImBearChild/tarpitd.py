@@ -279,7 +279,10 @@ class TarpitWriter:
 
 
 class BaseTarpit:
-    def _inner_init(self):
+    """
+    This class should not be used directly.
+    """
+    def _setup(self):
         return
 
     def connection_report(self):
@@ -347,7 +350,7 @@ class BaseTarpit:
         self.sem = asyncio.Semaphore(max_clients)
         self.rate_limit = rate_limit
         self.extra_options = extra_options
-        self._inner_init()
+        self._setup()
         if not client_log:
             self.log_client = lambda *a: None
         pass
@@ -378,7 +381,7 @@ class EgshAminoasTarpit(BaseTarpit):
             await writer.write_and_drain(header)
             self.logger.info(a)
     
-    def _inner_init(self):
+    def _setup(self):
         self._aminocese_cache = list(self.AMINOCESE_DICT.keys())
 
 class HttpTarpit(BaseTarpit):
@@ -413,7 +416,7 @@ class HttpDeflateTarpit(HttpTarpit):
         self._deflate_content = bytearray()
         pass
     
-    def _inner_init(self):
+    def _setup(self):
         self._make_deflate()
     pass
 
@@ -480,21 +483,21 @@ def async_main(args):
         p = i.casefold().partition(":")
         match p[0]:
             case "endlessh":
-                pit = EndlessBannerTarpit(rate_limit=args.rate)
+                pit = EndlessBannerTarpit(rate_limit=args.rate_limit)
             case "http_endless_header":
-                pit = HttpEndlessHeaderTarpit(rate_limit=args.rate)
+                pit = HttpEndlessHeaderTarpit(rate_limit=args.rate_limit)
             case "http_deflate_size_bomb":
-                pit = HttpDeflateSizeBombTarpit(rate_limit=args.rate)
+                pit = HttpDeflateSizeBombTarpit(rate_limit=args.rate_limit)
             case "http_deflate_html_bomb":
-                pit = HttpDeflateHtmlBombTarpit(rate_limit=args.rate)
+                pit = HttpDeflateHtmlBombTarpit(rate_limit=args.rate_limit)
             case "egsh_aminoas":
-                pit = EgshAminoasTarpit(rate_limit=args.rate)
+                pit = EgshAminoasTarpit(rate_limit=args.rate_limit)
             case other:
                 print(f"service {other} is not exist!")
                 exit()
         bind = p[2].partition(":")
         server.append(pit.create_server(host=bind[0], port=bind[2]))
-        logging.info(f"BIND:{p[0]}:{p[2]}:{args.rate}")
+        logging.info(f"BIND:{p[0]}:{p[2]}:{args.rate_limit}")
     run_server(server)
 
 
