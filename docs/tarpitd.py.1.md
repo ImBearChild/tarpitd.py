@@ -21,7 +21,7 @@ connect to it. For more information on tarpitd.py, please refer to
 
 Start a service on specified host and port. 
 The name of service is case-insensitive. For the full list of 
-supportedservices, please refer to 
+supported services, please refer to 
 [tarpitd.py(7)](./tarpitd.py.7.md)
 
 #### `-r RATE, --rate RATE`
