@@ -4,7 +4,7 @@ tarpitd.py - a daemon making a port into tarpit
 
 ## SYNOPSIS
 
-    tarpitd.py [-h] [-r RATE] 
+    tarpitd.py [-h] [-r RATE] [-c [FILE]]
         [-s SERVICE:HOST:PORT [SERVICE:HOST:PORT ...]] [--manual]
 
 ## DESCRIPTION
@@ -16,6 +16,10 @@ connect to it. For more information on tarpitd.py, please refer to
     tarpitd.py --manual tarpitd.py.7
 
 ## OPTIONS
+
+#### `-c, --config [FILE]`
+
+Load configuration from file.
 
 #### `-s, --serve TARPIT:HOST:PORT [SERVICE:HOST:PORT ...]`  
 
