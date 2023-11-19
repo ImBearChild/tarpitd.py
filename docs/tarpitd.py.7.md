@@ -5,7 +5,7 @@ tarpitd.py - information about tarpit services in tarpitd.py
 ## GENERAL DESCRIPTION
 
 Note: This section is for general information. And for description
-on services, please refer to SERVICES section.
+on available tarpits, please refer to TARPITS section.
 
 ### TL;DR
 
@@ -35,7 +35,7 @@ You can use tarpit to slow them down.
 
 ### What is a service in tarpitd.py 
 
-A service in tarpitd.py represent a pattern of response.
+A tarpit in tarpitd.py represent a pattern of response.
 
 For an instance, to fight a malicious HTTP client, tarpitd.py can
 hold on the connection by slowly sending an endless HTTP header, 
@@ -46,7 +46,7 @@ to the malicious client, overloading its HTML parser
 
 Different responses have different consequences, and different 
 clients may handle the same response differently. So even for one 
-protocol, there may be more than one `service` in tarpitd.py 
+protocol, there may be more than one "tarpit" in tarpitd.py 
 correspond to it.
 
 ### Resource consumption
@@ -71,11 +71,11 @@ attacker chooses to parse it, he will spend more time than defender.
 And if the attacker is only interested in HTTP header, the time the 
 defender spend on generating the bomb is wasted. 
 
-## SERVICES
+## TARPITS
 
 ### HTTP
 
-#### HTTP_ENDLESS_COOKIE
+#### http_endless_header
 
 Tested with client: Firefox, Chromium, curl
 
@@ -84,7 +84,7 @@ Making the client hang by sending an endless HTTP header lines of
 (or at least a blank line that indicates header is finished), 
 which will never be sent by tarpitd.py. 
 
-#### HTTP_DEFLATE_HTML_BOMB
+#### http_deflate_html_bomb
 
 Tested with client: Firefox, Chromium
 
@@ -99,7 +99,7 @@ Because it's pointless to serve uncompressed garbage, which
 may cause huge potential waste of bandwidth, and most
 clients support deflate algorithm.
 
-#### HTTP_DEFLATE_SIZE_BOMB
+#### http_deflate_size_bomb
 
 Tested with client: Firefox, Chromium, curl
 
@@ -115,7 +115,7 @@ have enough space for decompressed data.
 
 ### MISC
 
-#### MISC_ENDLESSH
+#### endlessh
 
 Have been tested with client: openssh
 
@@ -129,7 +129,7 @@ this as SSH).
 The current implementation in tarpitd.py is just an alias of 
 MISC_EGSH_AMINOAS.
 
-#### MISC_EGSH_AMINOAS
+#### egsh_aminoas
 
 Have been tested with client: openssh
 
