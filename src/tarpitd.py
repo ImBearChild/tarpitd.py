@@ -2,7 +2,7 @@
 # =============================================================================
 # Manual: tarpitd.py.1
 # -----------------------------------------------------------------------------
-_MANUAL_TARPITD_PY_1 = r"""
+_MANUAL_TARPITD_PY_1=r"""
 ## NAME
 
 tarpitd.py - a daemon making a port into tarpit
@@ -22,14 +22,14 @@ connect to it. For more information on tarpitd.py, please refer to
 
 ## OPTIONS
 
-#### `-s, --serve SERVICE:HOST:PORT [SERVICE:HOST:PORT ...]`  
+#### `-s, --serve TARPIT:HOST:PORT [SERVICE:HOST:PORT ...]`  
 
-Start a service on specified host and port. 
-The name of service is case-insensitive. For the full list of 
-supported services, please refer to 
+Start a tarpit on specified host and port. 
+The name of tarpit is case-insensitive. For the full list of 
+supported tarpits, please refer to 
 [tarpitd.py(7)](./tarpitd.py.7.md)
 
-#### `-r RATE, --rate RATE`
+#### `-r RATE, --rate-limit RATE`
 
 Set data transfer rate limit.
 Positive value limit transfer speed to RATE *byte* per second.
@@ -44,7 +44,7 @@ Print this manual:
 
 Start an endlessh tarpit:
 
-    tarpitd.py -s misc_endlessh:0.0.0.0:2222
+    tarpitd.py -s endlessh:0.0.0.0:2222
 
 Start an endless HTTP tarpit on 0.0.0.0:8080, send a byte every two
 seconds:
@@ -57,7 +57,7 @@ to 1 KB/s:
     tarpitd.py -r1024 -s HTTP_DEFLATE_HTML_BOMB:0.0.0.0:8088
 
 Start two different HTTP tarpit at the same time
-(the name of service is case-insensitive):
+(the name of tarpit is case-insensitive):
 
     tarpitd.py -s http_deflate_html_bomb:127.0.0.1:8080 \
                   HTTP_ENDLESS_COOKIE:0.0.0.0:8088 
@@ -72,7 +72,7 @@ Nianqing Yao [imbearchild at outlook.com]
 # =============================================================================
 # Manual: tarpitd.py.7
 # -----------------------------------------------------------------------------
-_MANUAL_TARPITD_PY_7 = r"""
+_MANUAL_TARPITD_PY_7=r"""
 ## NAME
 
 tarpitd.py - information about tarpit services in tarpitd.py
@@ -80,7 +80,7 @@ tarpitd.py - information about tarpit services in tarpitd.py
 ## GENERAL DESCRIPTION
 
 Note: This section is for general information. And for description
-on services, please refer to SERVICES section.
+on available tarpits, please refer to TARPITS section.
 
 ### TL;DR
 
@@ -110,7 +110,7 @@ You can use tarpit to slow them down.
 
 ### What is a service in tarpitd.py 
 
-A service in tarpitd.py represent a pattern of response.
+A tarpit in tarpitd.py represent a pattern of response.
 
 For an instance, to fight a malicious HTTP client, tarpitd.py can
 hold on the connection by slowly sending an endless HTTP header, 
@@ -121,7 +121,7 @@ to the malicious client, overloading its HTML parser
 
 Different responses have different consequences, and different 
 clients may handle the same response differently. So even for one 
-protocol, there may be more than one `service` in tarpitd.py 
+protocol, there may be more than one "tarpit" in tarpitd.py 
 correspond to it.
 
 ### Resource consumption
@@ -146,11 +146,11 @@ attacker chooses to parse it, he will spend more time than defender.
 And if the attacker is only interested in HTTP header, the time the 
 defender spend on generating the bomb is wasted. 
 
-## SERVICES
+## TARPITS
 
 ### HTTP
 
-#### HTTP_ENDLESS_COOKIE
+#### http_endless_header
 
 Tested with client: Firefox, Chromium, curl
 
@@ -159,7 +159,7 @@ Making the client hang by sending an endless HTTP header lines of
 (or at least a blank line that indicates header is finished), 
 which will never be sent by tarpitd.py. 
 
-#### HTTP_DEFLATE_HTML_BOMB
+#### http_deflate_html_bomb
 
 Tested with client: Firefox, Chromium
 
@@ -174,7 +174,7 @@ Because it's pointless to serve uncompressed garbage, which
 may cause huge potential waste of bandwidth, and most
 clients support deflate algorithm.
 
-#### HTTP_DEFLATE_SIZE_BOMB
+#### http_deflate_size_bomb
 
 Tested with client: Firefox, Chromium, curl
 
@@ -190,7 +190,7 @@ have enough space for decompressed data.
 
 ### MISC
 
-#### MISC_ENDLESSH
+#### endlessh
 
 Have been tested with client: openssh
 
@@ -204,7 +204,7 @@ this as SSH).
 The current implementation in tarpitd.py is just an alias of 
 MISC_EGSH_AMINOAS.
 
-#### MISC_EGSH_AMINOAS
+#### egsh_aminoas
 
 Have been tested with client: openssh
 
@@ -529,12 +529,13 @@ def main_cli():
     # )
     parser.add_argument(
         "-r",
-        "--rate",
+        "--rate-limit",
         help="set data transfer rate limit",
         action="store",
         type=int,
         default=None,
     )
+
     parser.add_argument(
         "-s",
         "--serve",
@@ -551,6 +552,7 @@ def main_cli():
         const="tarpitd.py.1",
         action="store",
     )
+    
     args = parser.parse_args()
 
     if args.manual:
