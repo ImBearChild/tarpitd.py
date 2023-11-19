@@ -231,9 +231,9 @@ import logging
 
 
 class TarpitWriter:
-    def close(self):
-        self.writer.close()
-
+    """
+    Wraps a asyncio.StreamWriter, adding speed limit on it.
+    """
     async def write(self, data):
         raise NotImplementedError
 
@@ -265,6 +265,8 @@ class TarpitWriter:
         self.rate = rate
         self.writer = writer
         self.drain = writer.drain
+        self.close = writer.close
+        self.wait_closed = writer.wait_closed
         if rate == 0:
             self.write = self._write_normal
         elif rate < 0:
