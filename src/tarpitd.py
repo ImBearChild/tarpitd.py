@@ -2,7 +2,7 @@
 # =============================================================================
 # Manual: tarpitd.py.1
 # -----------------------------------------------------------------------------
-_MANUAL_TARPITD_PY_1=r"""
+_MANUAL_TARPITD_PY_1 = r"""
 ## NAME
 
 tarpitd.py - a daemon making a port into tarpit
@@ -72,7 +72,7 @@ Nianqing Yao [imbearchild at outlook.com]
 # =============================================================================
 # Manual: tarpitd.py.7
 # -----------------------------------------------------------------------------
-_MANUAL_TARPITD_PY_7=r"""
+_MANUAL_TARPITD_PY_7 = r"""
 ## NAME
 
 tarpitd.py - information about tarpit services in tarpitd.py
@@ -228,20 +228,22 @@ __version__ = "0.1.0"
 import asyncio
 import random
 import logging
+import types
 
 
 class TarpitWriter:
     """
     Wraps a asyncio.StreamWriter, adding speed limit on it.
     """
-    async def write(self, data):
+
+    async def write_and_drain(self, data):
         raise NotImplementedError
 
     async def _write_with_interval(self, data):
         for b in range(0, len(data)):
             await asyncio.sleep(abs(self.rate))
             self.writer.write(data[b : b + 1])
-            await self.writer.drain()
+        await self.writer.drain()
 
     async def _write_normal(self, data):
         self.writer.write(data)
@@ -257,7 +259,6 @@ class TarpitWriter:
         for b in range(0, count):
             await asyncio.sleep(1)
             self.writer.write(data[b * self.rate : (b + 1) * self.rate])
-            await self.writer.drain()
         self.writer.write(data[(count) * self.rate :])
         await self.writer.drain()
 
@@ -268,59 +269,95 @@ class TarpitWriter:
         self.close = writer.close
         self.wait_closed = writer.wait_closed
         if rate == 0:
-            self.write = self._write_normal
+            self.write_and_drain = self._write_normal
         elif rate < 0:
-            self.write = self._write_with_interval
+            self.write_and_drain = self._write_with_interval
         else:
-            self.write = self._write_with_speedlimit
+            self.write_and_drain = self._write_with_speedlimit
 
     pass
 
 
-class Tarpit:
-    protocol = "None"
+class BaseTarpit:
+    def _inner_init(self):
+        return
 
-    def get_handler(self, host, port):
-        """This closure is used to pass listening address and port to
-        handler running in asyncio"""
+    def connection_report(self):
+        pass
+
+    def log_client(self, event, source, destination):
+        self.logger.info(f"client_trace:{event}:{source} => {destination}")
+
+    async def _real_handler(self, reader, writer: TarpitWriter):
+        print()
+        print("This is a test 'echo' service!")
+        data = await reader.read(100)
+        message = data.decode()
+        print(f"Sending: {message!r}")
+        await writer.write_and_drain(data)
+        await writer.drain()
+        print("Close the connection")
+        writer.close()
+        await writer.wait_closed()
+
+    def wrap_handler(self, source_hint, real_handler: types.FunctionType):
+        """
+        This closure is used to pass listening address and port to
+        handler running in asyncio
+        """
 
         async def handler(reader, writer: asyncio.StreamWriter):
             async with self.sem:
                 try:
                     peername = writer.get_extra_info("peername")
-                    self.logger.info(
-                        f"CONN:OPEN:({peername[0]}:{peername[1]})=>({host}:{port})"
+                    self.log_client(
+                        "open", f"{peername[0]}:{peername[1]}", f"{source_hint}"
                     )
-                    tarpit_writer = TarpitWriter(self.rate, writer=writer)
-                    await self._handler(reader, tarpit_writer)
+                    tarpit_writer = TarpitWriter(self.rate_limit, writer=writer)
+                    await real_handler(reader, tarpit_writer)
                 except (
                     BrokenPipeError,
                     ConnectionAbortedError,
                     ConnectionResetError,
                 ) as e:
-                    self.logger.info(
-                        f"CONN:CLOSE:({peername[0]}:{peername[1]})=>({host}:{port}):{e}"
+                    self.log_client(
+                        "close", f"{peername[0]}:{peername[1]}", f"{source_hint}:{e}"
                     )
 
         return handler
 
-    async def create_server(self, host="0.0.0.0", port="8080"):
+    async def create_server(self, host, port, start_serving=False):
         """
-        Caller should set self._handler before call this method
+        Create a TCP server of this Tarpit and listen on the port of host address.
+
+        Returns a asyncio.Server object.
+
+        This function won't start the server immediately.
+        The user should await on Server.start_serving() or
+        Server.serve_forever() to make the server to start accepting connections.
+
+        Caller should set self._real_handler before call this method
         """
-        s = await asyncio.start_server(self.get_handler(host, port), host, port)
-        return s
+        return await asyncio.start_server(
+            self.wrap_handler(f"{host}:{port}", self._real_handler), host, port
+        )
 
-    def __init__(self, coro_limit=32, rate=None) -> None:
-        self._handler = None
-        self.rate = rate
-        self.logger = logging.getLogger(self.protocol)
-        self.sem = asyncio.Semaphore(coro_limit)
+    def __init__(self, client_log=True, max_clients=32, rate_limit=16, **extra_options) -> None:
+        self.logger = logging.getLogger(__name__)
+        self.sem = asyncio.Semaphore(max_clients)
+        self.rate_limit = rate_limit
+        self.extra_options = extra_options
+        self._inner_init()
+        if not client_log:
+            self.log_client = lambda *a: None
+        pass
 
 
-class MiscTarpit(Tarpit):
-    protocol = "misc"
+class EndlessBannerTarpit(BaseTarpit):
+    async def _real_handler(self, reader, writer: TarpitWriter):
+        await writer.write_and_drain(b"%x\r\n" % random.randint(0, 2**32))
 
+class EgshAminoasTarpit(BaseTarpit):
     # cSpell:disable
     # These is a joke
     # https://github.com/HanaYabuki/aminoac
@@ -333,63 +370,75 @@ class MiscTarpit(Tarpit):
 
     _aminocese_cache = []
 
-    async def _handler_egsh_aminoas(self, _reader, tarpit_writer: TarpitWriter):
+    # cSpell:enable
+    async def _real_handler(self, reader, writer: TarpitWriter):
         while True:
             a = random.choice(self._aminocese_cache)
             header = a.encode() + b"\r\n"
-            await tarpit_writer.write(header)
+            await writer.write_and_drain(header)
             self.logger.info(a)
+    
+    def _inner_init(self):
+        self._aminocese_cache = list(self.AMINOCESE_DICT.keys())
 
-    # cSpell:enable
+class HttpTarpit(BaseTarpit):
+    HTTP_STATUS_LINE_200 = b"HTTP/1.1 200 OK\r\n"
+    pass
 
-    def __init__(self, method="egsh_aminoas", coro_limit=32, rate=None) -> None:
-        super().__init__()
-        match method:
-            case "egsh_aminoas":
-                if not rate:
-                    self.rate = -2
-                # make a list first, so we don't generate it for every connection
-                self._aminocese_cache = list(self.AMINOCESE_DICT.keys())
-                self._handler = self._handler_egsh_aminoas
-            case other:
-                raise NotImplementedError
-        if not self.rate:
-            self.rate = rate
-
-
-class HttpTarpit(Tarpit):
-    protocol = "http"
-
-    HTTP_START_LINE_200 = b"HTTP/1.1 200 OK\r\n"
-
-    async def _handler_endless_cookie(self, _reader, tarpit_writer: TarpitWriter):
-        await tarpit_writer.write(self.HTTP_START_LINE_200)
+class HttpEndlessHeaderTarpit(HttpTarpit):
+    async def _real_handler(self, reader, writer: TarpitWriter):
+        await writer.write_and_drain(self.HTTP_STATUS_LINE_200)
         while True:
             header = b"Set-Cookie: "
-            await tarpit_writer.write(header)
+            await writer.write_and_drain(header)
             header = b"%x=%x\r\n" % (
                 random.randint(0, 2**32),
                 random.randint(0, 2**32),
             )
-            await tarpit_writer.write(header)
+            await writer.write_and_drain(header)
 
-    def _get_handler_deflate(self, data):
-        async def fun(_reader, tarpit_writer: TarpitWriter):
-            await tarpit_writer.write(self.HTTP_START_LINE_200)
-            await tarpit_writer.write(
-                b"Content-Type: text/html; charset=UTF-8\r\nContent-Encoding: deflate\r\n"
+class HttpDeflateTarpit(HttpTarpit):
+    async def _real_handler(self, reader, writer: TarpitWriter):
+        await writer.write_and_drain(self.HTTP_STATUS_LINE_200)
+        await writer.write_and_drain(
+                b"Content-Type: text/html; charset=UTF-8\r\n"
+                b"Content-Encoding: deflate\r\n"
             )
-            await tarpit_writer.write(b"Content-Length: %i\r\n\r\n" % len(data))
-            await tarpit_writer.write(data)
-            self.logger.info("MISC:deflate data sent")
-            tarpit_writer.close()
+        await writer.write_and_drain(b"Content-Length: %i\r\n\r\n" % len(self._deflate_content))
+        await writer.write_and_drain(self._deflate_content)
+        self.logger.info("deflate data sent")
+        writer.close()
 
-        return fun
+    def _make_deflate(self):
+        self._deflate_content = bytearray()
+        pass
+    
+    def _inner_init(self):
+        self._make_deflate()
+    pass
 
-    def _generate_deflate_html_bomb(self):
+class HttpDeflateSizeBombTarpit(HttpDeflateTarpit):
+    def _make_deflate(self):
         import zlib
 
-        self.logger.info("MISC:creating bomb...")
+        t = zlib.compressobj(9)
+        bomb = bytearray()
+        bomb.extend(t.compress(b"<html>MORE!</dd>" * 5))
+        # The Maximum Compression Factor of zlib is about 1000:1
+        # so 1024**2 means 1 MB original data, 1 KB after compression
+        # According to https://www.zlib.net/zlib_tech.html
+        for _ in range(0, 1000):
+            bomb.extend(t.compress(bytes(1024**2)))
+        bomb.extend(t.compress(b"</html>MORE!</dd>" * 5))
+        bomb.extend(t.flush())
+        self._deflate_content = bomb
+        self.logger.info(f"deflate bomb created:{int(len(bomb)/1024):d}kb")
+
+class HttpDeflateHtmlBombTarpit(HttpDeflateTarpit):
+    def _make_deflate(self):
+        import zlib
+
+        self.logger.info("creating bomb...")
         # Don't use gzip, because gzip container contains uncompressed length
         # zlib stream have no uncompressed length, force client to decompress it
         # And they are SAME encodings, just difference in container format
@@ -405,64 +454,20 @@ class HttpTarpit(Tarpit):
                 * 51200
             )
         )
-        # The Maximum Compression Factor of zlib is about 1000:1
-        # so 1024**2 means 1 MB original data, 1 KB after compression
-        # According to https://www.zlib.net/zlib_tech.html
-        # for _ in range(0, 1000):
-        #     bomb.extend(t.compress(bytes(1024**2)))
         bomb.extend(t.compress(b"<table>MORE!</dd>" * 5))
         bomb.extend(t.flush())
-        self.logger.info(f"MISC:html bomb created:{int(len(bomb)/1024):d}kb")
-        self._deflate_html_bomb = bomb
+        self._deflate_content = bomb
+        self.logger.info(f"deflate bomb created:{int(len(bomb)/1024):d}kb")
 
-    def _generate_deflate_size_bomb(self):
-        self._generate_deflate_html_bomb()
-        import zlib
-
-        t = zlib.compressobj(9)
-        bomb = self._deflate_html_bomb.copy()
-        # The Maximum Compression Factor of zlib is about 1000:1
-        # so 1024**2 means 1 MB original data, 1 KB after compression
-        # According to https://www.zlib.net/zlib_tech.html
-        for _ in range(0, 1000):
-            bomb.extend(t.compress(bytes(1024**2)))
-        bomb.extend(t.compress(b"<table>MORE!</dd>" * 5))
-        bomb.extend(t.flush())
-        self._deflate_size_bomb = bomb
-        self.logger.info(f"MISC:deflate bomb created:{int(len(bomb)/1024):d}kb")
-
-    def __init__(self, method="endless_cookie", coro_limit=32, rate=None) -> None:
-        super().__init__()
-        match method:
-            case "endless_cookie":
-                if not rate:
-                    self.rate = -2
-                self._handler = self._handler_endless_cookie
-            case "deflate_size_bomb":
-                if not rate:
-                    self.rate = 1024
-                self._generate_deflate_size_bomb()
-                self._handler = self._get_handler_deflate(self._deflate_size_bomb)
-            case "deflate_html_bomb":
-                if not rate:
-                    self.rate = 1024
-                self._generate_deflate_html_bomb()
-                self._handler = self._get_handler_deflate(self._deflate_html_bomb)
-            case other:
-                raise NotImplementedError
-        if not self.rate:
-            self.rate = rate
-        self.logger.info(f"MISC:Server started:{self.rate}")
-        # limit client amount
 
 async def async_run_server(server):
     async with asyncio.TaskGroup() as tg:
         for i in server:
-            s = (await i)
+            s = await i
             addr = s.sockets[0].getsockname()
-            logging.debug(f'asyncio serving on {addr}')
+            logging.debug(f"asyncio serving on {addr}")
             tg.create_task(s.serve_forever())
-        
+
 
 def run_server(server):
     with asyncio.Runner() as runner:
@@ -474,16 +479,16 @@ def async_main(args):
     for i in args.serve:
         p = i.casefold().partition(":")
         match p[0]:
-            case "http_endless_cookie":
-                pit = HttpTarpit("endless_cookie", rate=args.rate)
-            case "http_deflate_html_bomb":
-                pit = HttpTarpit("deflate_html_bomb", rate=args.rate)
+            case "endlessh":
+                pit = EndlessBannerTarpit(rate_limit=args.rate)
+            case "http_endless_header":
+                pit = HttpEndlessHeaderTarpit(rate_limit=args.rate)
             case "http_deflate_size_bomb":
-                pit = HttpTarpit("deflate_size_bomb", rate=args.rate)
-            case "misc_endlessh":
-                pit = MiscTarpit("egsh_aminoas", rate=args.rate)
-            case "misc_egsh_aminoas":
-                pit = MiscTarpit("egsh_aminoas", rate=args.rate)
+                pit = HttpDeflateSizeBombTarpit(rate_limit=args.rate)
+            case "http_deflate_html_bomb":
+                pit = HttpDeflateHtmlBombTarpit(rate_limit=args.rate)
+            case "egsh_aminoas":
+                pit = EgshAminoasTarpit(rate_limit=args.rate)
             case other:
                 print(f"service {other} is not exist!")
                 exit()
@@ -493,9 +498,9 @@ def async_main(args):
     run_server(server)
 
 
-
 def display_manual_unix(name):
     import subprocess
+
     match name:
         case "tarpitd.py.1":
             subprocess.run("less", input=_MANUAL_TARPITD_PY_1.encode())
@@ -504,7 +509,17 @@ def display_manual_unix(name):
 
 
 def main_cli():
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format=(
+            #"%(name)s:%(levelname)s:%(message)s:"
+            "{"
+            '"created":%(created)f,"levelname":"%(levelname)s","funcName":"%(funcName)s",'
+            '"message":"%(message)s",'
+            '"module":"%(module)s","lineno":"%(lineno)d"'
+            "}"
+        ),
+    )
     import argparse
 
     parser = argparse.ArgumentParser(prog="tarpitd.py")
@@ -523,14 +538,18 @@ def main_cli():
     parser.add_argument(
         "-s",
         "--serve",
-        help="run specified service",
-        metavar="SERVICE:HOST:PORT",
+        help="serve specified tarpit",
+        metavar="TARPIT:HOST:PORT",
         action="extend",
         nargs="+",
     )
 
     parser.add_argument(
-        "--manual", help="show full manual of this program",nargs="?", const="tarpitd.py.1", action="store"
+        "--manual",
+        help="show full manual of this program",
+        nargs="?",
+        const="tarpitd.py.1",
+        action="store",
     )
     args = parser.parse_args()
 
