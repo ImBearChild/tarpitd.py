@@ -15,7 +15,7 @@ class TestStringMethods(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         pit = tarpitd.BaseTarpit(rate_limit=16)
-        self.server = await pit.create_server("0.0.0.0",8888)
+        self.server = await pit.create_server("127.0.0.1",8888)
         async with asyncio.TaskGroup() as tg:
             tg.create_task(self.server.start_serving())
         events.append("asyncSetUp")

@@ -9,7 +9,7 @@ tarpitd.py - a daemon making a port into tarpit
 
 ## SYNOPSIS
 
-    tarpitd.py [-h] [-r RATE] 
+    tarpitd.py [-h] [-r RATE] [-c [FILE]]
         [-s SERVICE:HOST:PORT [SERVICE:HOST:PORT ...]] [--manual]
 
 ## DESCRIPTION
@@ -21,6 +21,10 @@ connect to it. For more information on tarpitd.py, please refer to
     tarpitd.py --manual tarpitd.py.7
 
 ## OPTIONS
+
+#### `-c, --config [FILE]`
+
+Load configuration from file.
 
 #### `-s, --serve TARPIT:HOST:PORT [SERVICE:HOST:PORT ...]`  
 
@@ -486,7 +490,6 @@ def run_server(server):
     with asyncio.Runner() as runner:
         runner.run(async_run_server(server))
 
-
 def run_from_cli(args):
     server = []
     for i in args.serve:
@@ -508,6 +511,31 @@ def run_from_cli(args):
         bind = p[2].partition(":")
         server.append(pit.create_server(host=bind[0], port=bind[2]))
         logging.info(f"tarpitd is serving {p[0]} on {p[2]} with speed limit {args.rate_limit}")
+    run_server(server)
+
+def run_from_config(config):
+    server = []
+    for k,v in config["tarpits"].items():
+        pit = None
+        logging.info(f"tarpitd is serving {v["type"]}({k}) from config:")
+        logging.debug(f"{v}")
+        tarpit_conf = { "rate_limit": v.get("rate_limit") }
+        match v["type"]:
+            case "endlessh":
+                pit = EndlessBannerTarpit(**tarpit_conf)
+            case "http_endless_header":
+                pit = HttpEndlessHeaderTarpit(**tarpit_conf)
+            case "http_deflate_size_bomb":
+                pit = HttpDeflateSizeBombTarpit(**tarpit_conf)
+            case "http_deflate_html_bomb":
+                pit = HttpDeflateHtmlBombTarpit(**tarpit_conf)
+            case "egsh_aminoas":
+                pit = EgshAminoasTarpit(**tarpit_conf)
+            case other:
+                print(f"service {other} is not exist!")
+                exit()
+        for i in v["bind"]:
+            server.append(pit.create_server(host=i["host"], port=i["port"]))
     run_server(server)
 
 
@@ -550,6 +578,15 @@ def main_cli():
     )
 
     parser.add_argument(
+        "-c",
+        "--config",
+        help="specify config file",
+        metavar="FILE",
+        type=argparse.FileType('rb'),
+        nargs="?",
+    )
+    
+    parser.add_argument(
         "-s",
         "--serve",
         help="serve specified tarpit",
@@ -557,6 +594,8 @@ def main_cli():
         action="extend",
         nargs="+",
     )
+
+    
 
     parser.add_argument(
         "--manual",
@@ -571,6 +610,12 @@ def main_cli():
     if args.manual:
         display_manual_unix(args.manual)
         pass
+    elif args.config:
+        import tomllib
+        if args.serve:
+            print("--serve conflicts with --config")
+            exit()
+        run_from_config(tomllib.load(args.config))
     elif args.serve:
         run_from_cli(args)
     else:
