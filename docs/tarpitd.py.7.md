@@ -94,7 +94,7 @@ tarpitd.py. It's so bad that most client will waste a lot of time
 
 Some client won't bother to parse HTML, so this may not useful
 for them. Content sent by this service is always compressed with
-deflate algorithm, no matter client support it or not.
+deflate algorithm, no matter if client support it or not.
 Because it's pointless to serve uncompressed garbage, which
 may cause huge potential waste of bandwidth, and most
 clients support deflate algorithm.
@@ -125,9 +125,6 @@ name, technically this is not SSH, but an endless banner sender.
 Endless does implement no part of the SSH protocol, and no port 
 scanner will think it is SSH (at least nmap and censys don't mark 
 this as SSH).
-
-The current implementation in tarpitd.py is just an alias of 
-MISC_EGSH_AMINOAS.
 
 #### egsh_aminoas
 
