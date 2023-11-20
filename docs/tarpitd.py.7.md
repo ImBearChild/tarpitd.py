@@ -113,7 +113,7 @@ Curl won't decompress content by default. If you want to test this
 with curl, please add `--compressed` option to it, and make sure you
 have enough space for decompressed data.
 
-### MISC
+### SSH
 
 #### endlessh
 
@@ -125,6 +125,28 @@ name, technically this is not SSH, but an endless banner sender.
 Endless does implement no part of the SSH protocol, and no port 
 scanner will think it is SSH (at least nmap and censys don't mark 
 this as SSH).
+
+### ssh_trans_hold
+
+Have been tested with client: openssh
+
+This tarpit will keep the connection open by sending valid SSH 
+transport message. It follows IETF RFC 4253 (The Secure Shell (SSH) 
+Transport Layer Protocol). 
+
+First, it acts like a normal SSH server, sending identification 
+string, and send key exchange message about algorithm negotiation 
+after it. But it won't complete the key exchange, instead, sending 
+SSH_MSG_IGNORE repeatedly. The standard notes that clients MUST 
+ignore those message, but keeping receiving data will keep 
+connection open. So those clients will never disconnect.
+
+The current implementation reports itself as OpenSSH 8.9 on Ubuntu 
+and replays a pre-recorded OpenSSH key exchange algorithm 
+negotiation request. This behavior may change in the future and 
+affect the reporting results of some port scanners.
+
+### MISC
 
 #### egsh_aminoas
 

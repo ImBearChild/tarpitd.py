@@ -29,7 +29,7 @@ for manual_name in manpages:
         new_content = open(f"./docs/{manual_name}.md","r").read()
 
         # 用新的内容替换原来的内容
-        content = content[:start] + f"\n_MANUAL_{manual_name.upper().replace(".","_")}=r\"\"\"\n" + new_content + "\n"+ "\"\"\"" +"\n" +content[end:]
+        content = content[:start] + f"\n_MANUAL_{manual_name.upper().replace(".","_")} = r\"\"\"\n" + new_content + "\n"+ "\"\"\"" +"\n" +content[end:]
     else:
         # 打印错误信息
         print("Could not find two MARK_HERE tags in the file")
