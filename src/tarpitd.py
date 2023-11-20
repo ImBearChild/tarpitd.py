@@ -233,6 +233,10 @@ import asyncio
 import random
 import logging
 import types
+import enum
+import zlib
+
+# module for cli use only will be import when needed
 
 
 class TarpitWriter:
@@ -266,6 +270,15 @@ class TarpitWriter:
         self.writer.write(data[(count) * self.rate :])
         await self.writer.drain()
 
+    def change_rate_limit(self, rate: int):
+        self.rate = rate
+        if rate == 0:
+            self.write_and_drain = self._write_normal
+        elif rate < 0:
+            self.write_and_drain = self._write_with_interval
+        else:
+            self.write_and_drain = self._write_with_speedlimit
+
     def __init__(self, rate, writer: asyncio.StreamWriter) -> None:
         self.rate = rate
         self.writer = writer
@@ -292,7 +305,7 @@ class BaseTarpit:
         """
         Derived classes MAY overriding this in case they want to override default settings
         """
-        return {'client_log':True, 'max_clients':32, 'rate_limit': -1}
+        return {"client_log": True, "max_clients": 32, "rate_limit": -1}
 
     def _setup(self):
         """
@@ -338,7 +351,9 @@ class BaseTarpit:
                         self.log_client(
                             "open", f"{peername[0]}:{peername[1]}", f"{source_hint}"
                         )
-                        tarpit_writer = TarpitWriter(self._config['rate_limit'], writer=writer)
+                        tarpit_writer = TarpitWriter(
+                            self._config["rate_limit"], writer=writer
+                        )
                         await real_handler(reader, tarpit_writer)
                     except (
                         BrokenPipeError,
@@ -370,9 +385,7 @@ class BaseTarpit:
             self.wrap_handler(f"{host}:{port}", self._real_handler), host, port
         )
 
-    def __init__(
-        self, **config
-    ) -> None:
+    def __init__(self, **config) -> None:
         """
         Classes that inherit this Class SHOULD NOT overload this method.
         **options can be used to pass argument
@@ -385,19 +398,21 @@ class BaseTarpit:
         for parent in reversed(mro):
             if parent == object:
                 continue
-            if t := getattr(parent,"_DEFAULT_CONFIG",None):
-                self.logger.debug("merge default options from {}".format(parent.__name__))
+            if t := getattr(parent, "_DEFAULT_CONFIG", None):
+                self.logger.debug(
+                    "merge default options from {}".format(parent.__name__)
+                )
                 self._config |= t.fget()
-            #print("options: {}".format(options))
-        
+            # print("options: {}".format(options))
+
         # Remove None item from config
-        for k,v in config.copy().items():
+        for k, v in config.copy().items():
             if not v:
                 config.pop(k)
 
         self._config |= config
         self.logger.debug(self._config)
-        self.sem = asyncio.Semaphore(self._config['max_clients'])
+        self.sem = asyncio.Semaphore(self._config["max_clients"])
 
 
 class EndlessBannerTarpit(BaseTarpit):
@@ -431,6 +446,11 @@ class EgshAminoasTarpit(BaseTarpit):
         self._aminocese_cache = list(self.AMINOCESE_DICT.keys())
 
 
+#
+# HTTP
+#
+
+
 class HttpTarpit(BaseTarpit):
     HTTP_STATUS_LINE_200 = b"HTTP/1.1 200 OK\r\n"
     pass
@@ -450,7 +470,6 @@ class HttpEndlessHeaderTarpit(HttpTarpit):
 
 
 class HttpDeflateTarpit(HttpTarpit):
-    
     async def _real_handler(self, reader, writer: TarpitWriter):
         await writer.write_and_drain(self.HTTP_STATUS_LINE_200)
         await writer.write_and_drain(
@@ -476,8 +495,6 @@ class HttpDeflateTarpit(HttpTarpit):
 
 class HttpDeflateSizeBombTarpit(HttpDeflateTarpit):
     def _make_deflate(self):
-        import zlib
-
         t = zlib.compressobj(9)
         bomb = bytearray()
         bomb.extend(t.compress(b"<html>MORE!</dd>" * 5))
@@ -494,8 +511,6 @@ class HttpDeflateSizeBombTarpit(HttpDeflateTarpit):
 
 class HttpDeflateHtmlBombTarpit(HttpDeflateTarpit):
     def _make_deflate(self):
-        import zlib
-
         self.logger.info("creating bomb...")
         # Don't use gzip, because gzip container contains uncompressed length
         # zlib stream have no uncompressed length, force client to decompress it
@@ -516,6 +531,139 @@ class HttpDeflateHtmlBombTarpit(HttpDeflateTarpit):
         bomb.extend(t.flush())
         self._deflate_content = bomb
         self.logger.info(f"deflate bomb created:{int(len(bomb)/1024):d}kb")
+
+
+#
+# SSH
+#
+
+
+class SshMegNumber(enum.IntEnum):
+    """
+    RFC 4250 4.1
+
+    The Message Number is a byte value that describes the payload of a
+    packet.
+    """
+
+    SSH_MSG_IGNORE = 2
+    SSH_MSG_UNIMPLEMENTED = 3
+    SSH_MSG_DEBUG = 4
+
+
+class SshTarpit(BaseTarpit):
+    @classmethod
+    def make_ssh_packet(cls, payload):
+        packet = bytearray()
+        total_length = 4 + 1 + len(payload)
+        padding = 16 - (total_length % 8)
+        packet += (total_length - 4 + padding).to_bytes(4)
+        packet += padding.to_bytes(1)
+        packet += payload
+        packet += bytes(padding)
+        return packet
+
+    @classmethod
+    def make_ssh_msg(cls, type: int, data):
+        msg = bytearray(type.to_bytes())
+        msg += data
+        return msg
+
+    @classmethod
+    def make_ssh_msg_ignore(cls, length):
+        return cls.make_ssh_msg(SshMegNumber.SSH_MSG_IGNORE, bytes(length))
+
+
+class SshTransHoldTarpit(SshTarpit):
+    @property
+    def OPENSSH_KEX(self):
+        """
+        Hard-coded Key Exchange Init message
+        from a OpenSSH 9.5 client. 
+
+        It can be used in server,
+        because server and client uses the same format.
+        """
+        return bytes.fromhex(
+            "1417a3abdb8fa4d9ba63aea67651cbc85b00000114736e747275703736317832"
+            "353531392d736861353132406f70656e7373682e636f6d2c6375727665323535"
+            "31392d7368613235362c637572766532353531392d736861323536406c696273"
+            "73682e6f72672c656364682d736861322d6e697374703235362c656364682d73"
+            "6861322d6e697374703338342c656364682d736861322d6e697374703532312c"
+            "6469666669652d68656c6c6d616e2d67726f75702d65786368616e67652d7368"
+            "613235362c6469666669652d68656c6c6d616e2d67726f757031362d73686135"
+            "31322c6469666669652d68656c6c6d616e2d67726f757031382d736861353132"
+            "2c6469666669652d68656c6c6d616e2d67726f757031342d7368613235362c65"
+            "78742d696e666f2d63000001cf7373682d656432353531392d636572742d7630"
+            "31406f70656e7373682e636f6d2c65636473612d736861322d6e697374703235"
+            "362d636572742d763031406f70656e7373682e636f6d2c65636473612d736861"
+            "322d6e697374703338342d636572742d763031406f70656e7373682e636f6d2c"
+            "65636473612d736861322d6e697374703532312d636572742d763031406f7065"
+            "6e7373682e636f6d2c736b2d7373682d656432353531392d636572742d763031"
+            "406f70656e7373682e636f6d2c736b2d65636473612d736861322d6e69737470"
+            "3235362d636572742d763031406f70656e7373682e636f6d2c7273612d736861"
+            "322d3531322d636572742d763031406f70656e7373682e636f6d2c7273612d73"
+            "6861322d3235362d636572742d763031406f70656e7373682e636f6d2c737368"
+            "2d656432353531392c65636473612d736861322d6e697374703235362c656364"
+            "73612d736861322d6e697374703338342c65636473612d736861322d6e697374"
+            "703532312c736b2d7373682d65643235353139406f70656e7373682e636f6d2c"
+            "736b2d65636473612d736861322d6e69737470323536406f70656e7373682e63"
+            "6f6d2c7273612d736861322d3531322c7273612d736861322d3235360000006c"
+            "63686163686132302d706f6c7931333035406f70656e7373682e636f6d2c6165"
+            "733132382d6374722c6165733139322d6374722c6165733235362d6374722c61"
+            "65733132382d67636d406f70656e7373682e636f6d2c6165733235362d67636d"
+            "406f70656e7373682e636f6d0000006c63686163686132302d706f6c79313330"
+            "35406f70656e7373682e636f6d2c6165733132382d6374722c6165733139322d"
+            "6374722c6165733235362d6374722c6165733132382d67636d406f70656e7373"
+            "682e636f6d2c6165733235362d67636d406f70656e7373682e636f6d000000d5"
+            "756d61632d36342d65746d406f70656e7373682e636f6d2c756d61632d313238"
+            "2d65746d406f70656e7373682e636f6d2c686d61632d736861322d3235362d65"
+            "746d406f70656e7373682e636f6d2c686d61632d736861322d3531322d65746d"
+            "406f70656e7373682e636f6d2c686d61632d736861312d65746d406f70656e73"
+            "73682e636f6d2c756d61632d3634406f70656e7373682e636f6d2c756d61632d"
+            "313238406f70656e7373682e636f6d2c686d61632d736861322d3235362c686d"
+            "61632d736861322d3531322c686d61632d73686131000000d5756d61632d3634"
+            "2d65746d406f70656e7373682e636f6d2c756d61632d3132382d65746d406f70"
+            "656e7373682e636f6d2c686d61632d736861322d3235362d65746d406f70656e"
+            "7373682e636f6d2c686d61632d736861322d3531322d65746d406f70656e7373"
+            "682e636f6d2c686d61632d736861312d65746d406f70656e7373682e636f6d2c"
+            "756d61632d3634406f70656e7373682e636f6d2c756d61632d313238406f7065"
+            "6e7373682e636f6d2c686d61632d736861322d3235362c686d61632d73686132"
+            "2d3531322c686d61632d736861310000001a6e6f6e652c7a6c6962406f70656e"
+            "7373682e636f6d2c7a6c69620000001a6e6f6e652c7a6c6962406f70656e7373"
+            "682e636f6d2c7a6c696200000000000000000000000000"
+        )
+
+    async def _real_handler(self, reader, writer: TarpitWriter):
+        later_rate = writer.rate
+        if writer.rate < 128:
+            # Change to a faster rate to send the KEX handshake
+            writer.change_rate_limit(128)
+
+        # Send identifier
+        # RFC 4253: 
+        # Key exchange will begin immediately after sending this identifier.
+        await writer.write_and_drain(b"SSH-2.0-OpenSSH_9.0\r\n")
+        # Send a hard-coded key-exchange message
+        payload = self.OPENSSH_KEX
+        packet = self.make_ssh_packet(payload)
+        await writer.write_and_drain(packet)
+
+        # RFC 4253: 
+        # Once a party has sent a SSH_MSG_KEXINIT message for key exchange or
+        # re-exchange, until it has sent a SSH_MSG_NEWKEYS message (Section
+        # 7.3), it MUST NOT send any messages other than:
+        # * Transport layer generic messages (1 to 19) (but
+        #   SSH_MSG_SERVICE_REQUEST and SSH_MSG_SERVICE_ACCEPT MUST NOT be
+        #   sent);
+        while True:
+            writer.change_rate_limit(later_rate)
+            # SSH_MSG_IGNORE is allowed, 
+            # so keep sending this will keep connection open
+            packet = self.make_ssh_packet(self.make_ssh_msg_ignore(16))
+            await writer.write_and_drain(packet)
+
+    pass
 
 
 async def async_run_server(server):
@@ -565,6 +713,8 @@ def run_from_config(config):
                 pit = HttpDeflateHtmlBombTarpit(**tarpit_conf)
             case "egsh_aminoas":
                 pit = EgshAminoasTarpit(**tarpit_conf)
+            case "ssh_trans_hold":
+                pit = SshTransHoldTarpit(**tarpit_conf)
             case other:
                 print(f"service {other} is not exist!")
                 exit()
