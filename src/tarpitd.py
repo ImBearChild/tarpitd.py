@@ -239,8 +239,6 @@ by Daret Hanakhan: Egsh Aminoas. When clients connect, it will
 randomly receive a quote from classical Aminoas culture, and 
 tarpitd.py will show you the same quote in log at the same time.
 
-> Hope this song will bring you homesickness. And remember ... 
-  You are always welcome in Aminoas.
 
 """
 # =============================================================================
@@ -472,7 +470,7 @@ class EgshAminoasTarpit(BaseTarpit):
 
 
 class HttpTarpit(BaseTarpit):
-    HTTP_STATUS_LINE_200 = b"HTTP/1.1 200 OK\r\n"
+    HTTP_STATUS_LINE_200 = b"HTTP/1.1 200 OK\r\nServer: Apache/2.4.9\r\nX-Powered-By: PHP/5.1.2-1+b1\r\n"
     pass
 
 
@@ -775,7 +773,8 @@ def main_cli():
     parser = argparse.ArgumentParser(
         prog="tarpitd.py",
         epilog=(
-            "This game was made on the lands of the Aminoac people of the Amacinoas Nation.\n"
+            "This program was made on the lands of"
+            "the Aminoac people of the Amacinoas Nation. "
             "We pay our respects to their Elders, past and present. "
             "Sovereignty was never ceded."
         ),
