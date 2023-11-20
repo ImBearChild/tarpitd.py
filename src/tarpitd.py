@@ -173,7 +173,7 @@ tarpitd.py. It's so bad that most client will waste a lot of time
 
 Some client won't bother to parse HTML, so this may not useful
 for them. Content sent by this service is always compressed with
-deflate algorithm, no matter client support it or not.
+deflate algorithm, no matter if client support it or not.
 Because it's pointless to serve uncompressed garbage, which
 may cause huge potential waste of bandwidth, and most
 clients support deflate algorithm.
@@ -192,7 +192,7 @@ Curl won't decompress content by default. If you want to test this
 with curl, please add `--compressed` option to it, and make sure you
 have enough space for decompressed data.
 
-### MISC
+### SSH
 
 #### endlessh
 
@@ -205,8 +205,27 @@ Endless does implement no part of the SSH protocol, and no port
 scanner will think it is SSH (at least nmap and censys don't mark 
 this as SSH).
 
-The current implementation in tarpitd.py is just an alias of 
-MISC_EGSH_AMINOAS.
+### ssh_trans_hold
+
+Have been tested with client: openssh
+
+This tarpit will keep the connection open by sending valid SSH 
+transport message. It follows IETF RFC 4253 (The Secure Shell (SSH) 
+Transport Layer Protocol). 
+
+First, it acts like a normal SSH server, sending identification 
+string, and send key exchange message about algorithm negotiation 
+after it. But it won't complete the key exchange, instead, sending 
+SSH_MSG_IGNORE repeatedly. The standard notes that clients MUST 
+ignore those message, but keeping receiving data will keep 
+connection open. So those clients will never disconnect.
+
+The current implementation reports itself as OpenSSH 8.9 on Ubuntu 
+and replays a pre-recorded OpenSSH key exchange algorithm 
+negotiation request. This behavior may change in the future and 
+affect the reporting results of some port scanners.
+
+### MISC
 
 #### egsh_aminoas
 
@@ -579,7 +598,7 @@ class SshTransHoldTarpit(SshTarpit):
     def OPENSSH_KEX(self):
         """
         Hard-coded Key Exchange Init message
-        from a OpenSSH 9.5 client. 
+        from a OpenSSH 9.5 client.
 
         It can be used in server,
         because server and client uses the same format.
@@ -641,15 +660,19 @@ class SshTransHoldTarpit(SshTarpit):
             writer.change_rate_limit(128)
 
         # Send identifier
-        # RFC 4253: 
+        # RFC 4253:
         # Key exchange will begin immediately after sending this identifier.
-        await writer.write_and_drain(b"SSH-2.0-OpenSSH_9.0\r\n")
+        await writer.write_and_drain(
+            # pretend to be ubuntu
+            b"SSH-2.0-OpenSSH_8.9p1"
+            b"Ubuntu-3ubuntu0.3\r\n"
+        )
         # Send a hard-coded key-exchange message
         payload = self.OPENSSH_KEX
         packet = self.make_ssh_packet(payload)
         await writer.write_and_drain(packet)
 
-        # RFC 4253: 
+        # RFC 4253:
         # Once a party has sent a SSH_MSG_KEXINIT message for key exchange or
         # re-exchange, until it has sent a SSH_MSG_NEWKEYS message (Section
         # 7.3), it MUST NOT send any messages other than:
@@ -658,7 +681,7 @@ class SshTransHoldTarpit(SshTarpit):
         #   sent);
         while True:
             writer.change_rate_limit(later_rate)
-            # SSH_MSG_IGNORE is allowed, 
+            # SSH_MSG_IGNORE is allowed,
             # so keep sending this will keep connection open
             packet = self.make_ssh_packet(self.make_ssh_msg_ignore(16))
             await writer.write_and_drain(packet)
