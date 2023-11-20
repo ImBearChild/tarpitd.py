@@ -287,6 +287,13 @@ class BaseTarpit:
     This class should not be used directly.
     """
 
+    @property
+    def _DEFAULT_CONFIG():
+        """
+        Derived classes MAY overriding this in case they want to override default settings
+        """
+        return {'client_log':True, 'max_clients':32, 'rate_limit': -1}
+
     def _setup(self):
         """
         Setting up the Tarpit
@@ -331,7 +338,7 @@ class BaseTarpit:
                         self.log_client(
                             "open", f"{peername[0]}:{peername[1]}", f"{source_hint}"
                         )
-                        tarpit_writer = TarpitWriter(self.rate_limit, writer=writer)
+                        tarpit_writer = TarpitWriter(self._config['rate_limit'], writer=writer)
                         await real_handler(reader, tarpit_writer)
                     except (
                         BrokenPipeError,
@@ -364,29 +371,39 @@ class BaseTarpit:
         )
 
     def __init__(
-        self, client_log=True, max_clients=32, rate_limit=16, **extra_options
+        self, **config
     ) -> None:
         """
         Classes that inherit this Class SHOULD NOT overload this method.
-        **extra_options can be used to transfer extra argument
+        **options can be used to pass argument
         """
         self.logger = logging.getLogger(__name__)
-        self.sem = asyncio.Semaphore(max_clients)
-        self.rate_limit = rate_limit
-        self.extra_options = extra_options
-        self._setup()
-        if not client_log:
-            self.log_client = lambda *a: None
-        pass
+        self._config = {}
 
+        # Merge default config with method resolution order
+        mro = self.__class__.__mro__
+        for parent in reversed(mro):
+            if parent == object:
+                continue
+            if t := getattr(parent,"_DEFAULT_CONFIG",None):
+                self.logger.debug("merge default options from {}".format(parent.__name__))
+                self._config |= t.fget()
+            #print("options: {}".format(options))
+        
+        # Remove None item from config
+        for k,v in config.copy().items():
+            if not v:
+                config.pop(k)
 
-class SshTarpit(BaseTarpit):
-    pass
+        self._config |= config
+        self.logger.debug(self._config)
+        self.sem = asyncio.Semaphore(self._config['max_clients'])
 
 
 class EndlessBannerTarpit(BaseTarpit):
     async def _real_handler(self, reader, writer: TarpitWriter):
-        await writer.write_and_drain(b"%x\r\n" % random.randint(0, 2**32))
+        while True:
+            await writer.write_and_drain(b"%x\r\n" % random.randint(0, 2**32))
 
 
 class EgshAminoasTarpit(BaseTarpit):
@@ -433,6 +450,7 @@ class HttpEndlessHeaderTarpit(HttpTarpit):
 
 
 class HttpDeflateTarpit(HttpTarpit):
+    
     async def _real_handler(self, reader, writer: TarpitWriter):
         await writer.write_and_drain(self.HTTP_STATUS_LINE_200)
         await writer.write_and_drain(
