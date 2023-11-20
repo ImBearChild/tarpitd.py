@@ -2,7 +2,7 @@
 # =============================================================================
 # Manual: tarpitd.py.1
 # -----------------------------------------------------------------------------
-_MANUAL_TARPITD_PY_1=r"""
+_MANUAL_TARPITD_PY_1 = r"""
 ## NAME
 
 tarpitd.py - a daemon making a port into tarpit
@@ -76,7 +76,7 @@ Nianqing Yao [imbearchild at outlook.com]
 # =============================================================================
 # Manual: tarpitd.py.7
 # -----------------------------------------------------------------------------
-_MANUAL_TARPITD_PY_7=r"""
+_MANUAL_TARPITD_PY_7 = r"""
 ## NAME
 
 tarpitd.py - information about tarpit services in tarpitd.py
@@ -286,16 +286,17 @@ class BaseTarpit:
     """
     This class should not be used directly.
     """
+
     def _setup(self):
         """
         Setting up the Tarpit
 
-        Classes that inherit this Class can implement this method 
-        as an alternative to overloading __init__. 
+        Classes that inherit this Class can implement this method
+        as an alternative to overloading __init__.
         """
         return
 
-    def log_client(self, event, source, destination , comment=None):
+    def log_client(self, event, source, destination, comment=None):
         self.logger.info(f"client_trace:{event}:[ {source} > {destination} ]:{comment}")
 
     async def _real_handler(self, reader, writer: TarpitWriter):
@@ -325,20 +326,26 @@ class BaseTarpit:
         async def handler(reader, writer: asyncio.StreamWriter):
             async with self.sem:
                 try:
-                    peername = writer.get_extra_info("peername")
-                    self.log_client(
-                        "open", f"{peername[0]}:{peername[1]}", f"{source_hint}"
-                    )
-                    tarpit_writer = TarpitWriter(self.rate_limit, writer=writer)
-                    await real_handler(reader, tarpit_writer)
-                except (
-                    BrokenPipeError,
-                    ConnectionAbortedError,
-                    ConnectionResetError,
-                ) as e:
-                    self.log_client(
-                        "close", f"{peername[0]}:{peername[1]}", f"{source_hint}",f"{e}"
-                    )
+                    try:
+                        peername = writer.get_extra_info("peername")
+                        self.log_client(
+                            "open", f"{peername[0]}:{peername[1]}", f"{source_hint}"
+                        )
+                        tarpit_writer = TarpitWriter(self.rate_limit, writer=writer)
+                        await real_handler(reader, tarpit_writer)
+                    except (
+                        BrokenPipeError,
+                        ConnectionAbortedError,
+                        ConnectionResetError,
+                    ) as e:
+                        self.log_client(
+                            "close",
+                            f"{peername[0]}:{peername[1]}",
+                            f"{source_hint}",
+                            f"{e}",
+                        )
+                except Exception as e:
+                    self.logger.exception(e)
 
         return handler
 
@@ -356,7 +363,9 @@ class BaseTarpit:
             self.wrap_handler(f"{host}:{port}", self._real_handler), host, port
         )
 
-    def __init__(self, client_log=True, max_clients=32, rate_limit=16, **extra_options) -> None:
+    def __init__(
+        self, client_log=True, max_clients=32, rate_limit=16, **extra_options
+    ) -> None:
         """
         Classes that inherit this Class SHOULD NOT overload this method.
         **extra_options can be used to transfer extra argument
@@ -371,9 +380,14 @@ class BaseTarpit:
         pass
 
 
+class SshTarpit(BaseTarpit):
+    pass
+
+
 class EndlessBannerTarpit(BaseTarpit):
     async def _real_handler(self, reader, writer: TarpitWriter):
         await writer.write_and_drain(b"%x\r\n" % random.randint(0, 2**32))
+
 
 class EgshAminoasTarpit(BaseTarpit):
     # cSpell:disable
@@ -395,13 +409,15 @@ class EgshAminoasTarpit(BaseTarpit):
             header = a.encode() + b"\r\n"
             await writer.write_and_drain(header)
             self.logger.info(a)
-    
+
     def _setup(self):
         self._aminocese_cache = list(self.AMINOCESE_DICT.keys())
+
 
 class HttpTarpit(BaseTarpit):
     HTTP_STATUS_LINE_200 = b"HTTP/1.1 200 OK\r\n"
     pass
+
 
 class HttpEndlessHeaderTarpit(HttpTarpit):
     async def _real_handler(self, reader, writer: TarpitWriter):
@@ -415,14 +431,17 @@ class HttpEndlessHeaderTarpit(HttpTarpit):
             )
             await writer.write_and_drain(header)
 
+
 class HttpDeflateTarpit(HttpTarpit):
     async def _real_handler(self, reader, writer: TarpitWriter):
         await writer.write_and_drain(self.HTTP_STATUS_LINE_200)
         await writer.write_and_drain(
-                b"Content-Type: text/html; charset=UTF-8\r\n"
-                b"Content-Encoding: deflate\r\n"
-            )
-        await writer.write_and_drain(b"Content-Length: %i\r\n\r\n" % len(self._deflate_content))
+            b"Content-Type: text/html; charset=UTF-8\r\n"
+            b"Content-Encoding: deflate\r\n"
+        )
+        await writer.write_and_drain(
+            b"Content-Length: %i\r\n\r\n" % len(self._deflate_content)
+        )
         await writer.write_and_drain(self._deflate_content)
         self.logger.info("deflate data sent")
         writer.close()
@@ -430,10 +449,12 @@ class HttpDeflateTarpit(HttpTarpit):
     def _make_deflate(self):
         self._deflate_content = bytearray()
         pass
-    
+
     def _setup(self):
         self._make_deflate()
+
     pass
+
 
 class HttpDeflateSizeBombTarpit(HttpDeflateTarpit):
     def _make_deflate(self):
@@ -451,6 +472,7 @@ class HttpDeflateSizeBombTarpit(HttpDeflateTarpit):
         bomb.extend(t.flush())
         self._deflate_content = bomb
         self.logger.info(f"deflate bomb created:{int(len(bomb)/1024):d}kb")
+
 
 class HttpDeflateHtmlBombTarpit(HttpDeflateTarpit):
     def _make_deflate(self):
@@ -486,40 +508,34 @@ async def async_run_server(server):
             logging.debug(f"asyncio serving on {addr}")
             tg.create_task(s.serve_forever())
 
+
 def run_server(server):
     with asyncio.Runner() as runner:
         runner.run(async_run_server(server))
 
+
 def run_from_cli(args):
     server = []
+    config = {"tarpits": {}}
+    number = 0
     for i in args.serve:
         p = i.casefold().partition(":")
-        match p[0]:
-            case "endlessh":
-                pit = EndlessBannerTarpit(rate_limit=args.rate_limit)
-            case "http_endless_header":
-                pit = HttpEndlessHeaderTarpit(rate_limit=args.rate_limit)
-            case "http_deflate_size_bomb":
-                pit = HttpDeflateSizeBombTarpit(rate_limit=args.rate_limit)
-            case "http_deflate_html_bomb":
-                pit = HttpDeflateHtmlBombTarpit(rate_limit=args.rate_limit)
-            case "egsh_aminoas":
-                pit = EgshAminoasTarpit(rate_limit=args.rate_limit)
-            case other:
-                print(f"service {other} is not exist!")
-                exit()
-        bind = p[2].partition(":")
-        server.append(pit.create_server(host=bind[0], port=bind[2]))
-        logging.info(f"tarpitd is serving {p[0]} on {p[2]} with speed limit {args.rate_limit}")
-    run_server(server)
+        config["tarpits"][f"cli_{number}"] = {
+            "type": p[0],
+            "rate_limit": args.rate_limit,
+            "bind": [{"host": p[2].partition(":")[0], "port": p[2].partition(":")[2]}],
+        }
+        number += 1
+    run_from_config(config)
+
 
 def run_from_config(config):
     server = []
-    for k,v in config["tarpits"].items():
+    for k, v in config["tarpits"].items():
         pit = None
-        logging.info(f"tarpitd is serving {v["type"]}({k}) from config:")
+        logging.info("tarpitd is serving {}({}) from config".format(v["type"], k))
         logging.debug(f"{v}")
-        tarpit_conf = { "rate_limit": v.get("rate_limit") }
+        tarpit_conf = {"rate_limit": v.get("rate_limit")}
         match v["type"]:
             case "endlessh":
                 pit = EndlessBannerTarpit(**tarpit_conf)
@@ -582,10 +598,10 @@ def main_cli():
         "--config",
         help="specify config file",
         metavar="FILE",
-        type=argparse.FileType('rb'),
+        type=argparse.FileType("rb"),
         nargs="?",
     )
-    
+
     parser.add_argument(
         "-s",
         "--serve",
@@ -595,8 +611,6 @@ def main_cli():
         nargs="+",
     )
 
-    
-
     parser.add_argument(
         "--manual",
         help="show full manual of this program",
@@ -604,7 +618,7 @@ def main_cli():
         const="tarpitd.py.1",
         action="store",
     )
-    
+
     args = parser.parse_args()
 
     if args.manual:
@@ -612,6 +626,7 @@ def main_cli():
         pass
     elif args.config:
         import tomllib
+
         if args.serve:
             print("--serve conflicts with --config")
             exit()
