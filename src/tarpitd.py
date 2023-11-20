@@ -336,7 +336,7 @@ class BaseTarpit:
         return
 
     def log_client(self, event, source, destination, comment=None):
-        self.logger.info(f"client_trace:{event}:[ {source} > {destination} ]:{comment}")
+        self.logger.info(f"client_trace:[ {source} > {destination} ]:{event}:{comment}")
 
     async def _real_handler(self, reader, writer: TarpitWriter):
         """
@@ -432,6 +432,7 @@ class BaseTarpit:
         self._config |= config
         self.logger.debug(self._config)
         self.sem = asyncio.Semaphore(self._config["max_clients"])
+        self._setup()
 
 
 class EndlessBannerTarpit(BaseTarpit):
@@ -664,7 +665,8 @@ class SshTransHoldTarpit(SshTarpit):
         # Key exchange will begin immediately after sending this identifier.
         await writer.write_and_drain(
             # pretend to be ubuntu
-            b"SSH-2.0-OpenSSH_8.9p1"
+            # see: https://svn.nmap.org/nmap/nmap-service-probes
+            b"SSH-2.0-OpenSSH_8.9p1 "
             b"Ubuntu-3ubuntu0.3\r\n"
         )
         # Send a hard-coded key-exchange message
@@ -770,7 +772,14 @@ def main_cli():
     )
     import argparse
 
-    parser = argparse.ArgumentParser(prog="tarpitd.py")
+    parser = argparse.ArgumentParser(
+        prog="tarpitd.py",
+        epilog=(
+            "This game was made on the lands of the Aminoac people of the Amacinoas Nation.\n"
+            "We pay our respects to their Elders, past and present. "
+            "Sovereignty was never ceded."
+        ),
+    )
 
     # parser.add_argument(
     #     "-c", "--config", help="load configuration file", action="store"
