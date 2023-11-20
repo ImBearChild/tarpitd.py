@@ -141,5 +141,5 @@ by Daret Hanakhan: Egsh Aminoas. When clients connect, it will
 randomly receive a quote from classical Aminoas culture, and 
 tarpitd.py will show you the same quote in log at the same time.
 
-Hope this song will bring you homesickness. And remember ... 
-You are always welcome in Aminoas.
+> Hope this song will bring you homesickness. And remember ... 
+  You are always welcome in Aminoas.

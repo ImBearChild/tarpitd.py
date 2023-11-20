@@ -1,10 +1,14 @@
 # Tarpitd.py
 
+[中文](./README.zh.md)
+
 Tarpitd.py will partly simulate common internet services,
 for an instance, HTTP, but respond in a way that may make the 
-client not work properly, slow them down or make them crash.
+client not work properly, slowing them down or making them crash.
 
 ## Qucik start
+
+Note: tarpitd.py require Python 3.11 or above!
 
 Just download the script and run it:
 
@@ -12,7 +16,7 @@ Just download the script and run it:
 wget --output-document tarpitd.py \
 https://github.com/ImBearChild/tarpitd.py/raw/main/src/tarpitd.py
 
-python ./tarpitd.py -s misc_endlessh:0.0.0.0:2222
+python ./tarpitd.py -s endlessh:0.0.0.0:2222
 ```
 
 Now an endlessh tarpit is running on your host listening port 2222.
@@ -39,3 +43,5 @@ Or you can refer to embedded manual page, if you have the script downloaded:
 ```
 python tarpitd.py --manual tarpitd.py.7
 ```
+
+or you can just use text editor open this script.
