@@ -1,6 +1,6 @@
 ## NAME
 
-tarpitd.py - a daemon making a port into tarpit
+tarpitd.py - making a port into tarpit
 
 ## SYNOPSIS
 
