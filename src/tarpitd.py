@@ -252,6 +252,7 @@ import logging
 import types
 import enum
 import zlib
+import http
 
 # module for cli use only will be import when needed
 
@@ -322,7 +323,7 @@ class BaseTarpit:
         """
         Derived classes MAY overriding this in case they want to override default settings
         """
-        return {"client_log": True, "max_clients": 32, "rate_limit": -1}
+        return {"client_trace": True, "max_clients": 64, "rate_limit": -1}
 
     def _setup(self):
         """
@@ -341,18 +342,8 @@ class BaseTarpit:
         Callback for providing service
 
         Classes that inherit this Class SHOULD overload this method.
-        And this method is an example of echo server.
         """
-        print()
-        print("This is a test 'echo' service!")
-        data = await reader.read(100)
-        message = data.decode()
-        print(f"Sending: {message!r}")
-        await writer.write_and_drain(data)
-        await writer.drain()
-        print("Close the connection")
-        writer.close()
-        await writer.wait_closed()
+        raise NotImplementedError
 
     def wrap_handler(self, source_hint, real_handler: types.FunctionType):
         """
@@ -430,7 +421,28 @@ class BaseTarpit:
         self._config |= config
         self.logger.debug(self._config)
         self.sem = asyncio.Semaphore(self._config["max_clients"])
+        if not self._config["client_trace"]:
+            self.log_client = lambda a: None
         self._setup()
+
+
+class EchoTarpit(BaseTarpit):
+    async def _real_handler(self, reader, writer: TarpitWriter):
+        """
+        Callback for providing service
+
+        And this method is an example of echo server.
+        """
+        print()
+        print("This is a test 'echo' service!")
+        data = await reader.read(100)
+        message = data.decode()
+        print(f"Sending: {message!r}")
+        await writer.write_and_drain(data)
+        await writer.drain()
+        print("Close the connection")
+        writer.close()
+        await writer.wait_closed()
 
 
 class EndlessBannerTarpit(BaseTarpit):
@@ -467,53 +479,131 @@ class EgshAminoasTarpit(BaseTarpit):
 #
 # HTTP
 #
+class HttpConnection:
+    @staticmethod
+    def to_bytes(data) -> bytes:
+        t = type(data)
+        if t == bytearray:
+            return data
+        elif t == bytes:
+            return data
+        elif t == str:
+            return bytes(data, "ASCII")
+        else:
+            return bytes(data)
+
+    async def send_status_line(
+        self, code: int, phrase: bytes = None, version: bytes = b"HTTP/1.1"
+    ):
+        status = http.HTTPStatus(code)
+        await self.writer.write_and_drain(
+            b"%s %d %s\r\n" % (version, status, bytes(status.phrase, "ASCII"))
+        )
+        await self.send_raw(b"Server: Apache/2.4.9\r\nX-Powered-By: PHP/5.1.2-1+b1\r\n")
+        pass
+
+    async def send_header(self, keyword: bytes, value: bytes):
+        await self.writer.write_and_drain(b"%s: %s\r\n" % (keyword, value))
+        pass
+
+    async def end_headers(self):
+        await self.writer.write_and_drain(b"\r\n")
+
+    async def send_content(
+        self, content:bytes, type_:bytes=b"text/html; charset=UTF-8", encoding:bytes=None
+    ):
+        await self.send_header(b"Content-Type", type_)
+        await self.send_header(b"Content-Length", b"%d" % len(content))
+        if encoding:
+            await self.send_header(b"Content-Encoding", encoding)
+        await self.end_headers()
+        await self.send_raw(content)
+        pass
+
+    def __init__(self, reader, writer: TarpitWriter) -> None:
+        self.reader = reader
+        self.writer = writer
+        self.send_raw = writer.write_and_drain
+        pass
+
+    pass
 
 
 class HttpTarpit(BaseTarpit):
-    HTTP_STATUS_LINE_200 = b"HTTP/1.1 200 OK\r\nServer: Apache/2.4.9\r\nX-Powered-By: PHP/5.1.2-1+b1\r\n"
+    HTTP_STATUS_LINE_200 = (
+        b"HTTP/1.1 200 OK\r\nServer: Apache/2.4.9\r\nX-Powered-By: PHP/5.1.2-1+b1\r\n"
+    )
+
+    async def _http_handler(self, connection: HttpConnection):
+        pass
+
+    async def _real_handler(self, reader, writer: TarpitWriter):
+        conn = HttpConnection(reader, writer)
+        await self._http_handler(conn)
+        pass
+
     pass
 
 
 class HttpEndlessHeaderTarpit(HttpTarpit):
-    async def _real_handler(self, reader, writer: TarpitWriter):
-        await writer.write_and_drain(self.HTTP_STATUS_LINE_200)
+    async def _http_handler(self, connection):
+        await connection.send_status_line(200)
         while True:
             header = b"Set-Cookie: "
-            await writer.write_and_drain(header)
+            await connection.send_raw(header)
             header = b"%x=%x\r\n" % (
                 random.randint(0, 2**32),
                 random.randint(0, 2**32),
             )
-            await writer.write_and_drain(header)
+            await connection.send_raw(header)
 
 
 class HttpDeflateTarpit(HttpTarpit):
-    async def _real_handler(self, reader, writer: TarpitWriter):
-        await writer.write_and_drain(self.HTTP_STATUS_LINE_200)
-        await writer.write_and_drain(
-            b"Content-Type: text/html; charset=UTF-8\r\n"
-            b"Content-Encoding: deflate\r\n"
-        )
-        await writer.write_and_drain(
-            b"Content-Length: %i\r\n\r\n" % len(self._deflate_content)
-        )
-        await writer.write_and_drain(self._deflate_content)
-        self.logger.info("deflate data sent")
-        writer.close()
+    @property
+    def _DEFAULT_CONFIG():
+        """
+        Derived classes MAY overriding this in case they want to override default settings
+        """
+        return {
+            "rate_limit": 16,
+            "compression_type": "gzip",
+        }
 
-    def _make_deflate(self):
-        self._deflate_content = bytearray()
-        pass
+    async def _http_handler(self, connection: HttpConnection):
+        await connection.send_status_line(200)
+        await connection.send_content(
+            self._deflate_content, encoding=bytes(self.compression_type,"ASCII")
+        )
+        return
+
+    def _make_deflate(self, compressobj):
+        raise NotImplementedError
 
     def _setup(self):
-        self._make_deflate()
+        self.compression_type = self._config["compression_type"]
+        match self.compression_type:
+            case "gzip":
+                compressobj = zlib.compressobj(level=9, wbits=31)
+            case "deflate":
+                compressobj = zlib.compressobj(level=9, wbits=15)
+        self._make_deflate(compressobj)
 
     pass
 
 
 class HttpDeflateSizeBombTarpit(HttpDeflateTarpit):
-    def _make_deflate(self):
-        t = zlib.compressobj(9)
+    @property
+    def _DEFAULT_CONFIG():
+        """
+        Derived classes MAY overriding this in case they want to override default settings
+        """
+        return {
+            "rate_limit": 16,
+            "compression_type": "deflate",
+        }
+
+    def _make_deflate(self, compressobj):
+        t = compressobj
         bomb = bytearray()
         bomb.extend(t.compress(b"<html>MORE!</dd>" * 5))
         # The Maximum Compression Factor of zlib is about 1000:1
@@ -528,12 +618,12 @@ class HttpDeflateSizeBombTarpit(HttpDeflateTarpit):
 
 
 class HttpDeflateHtmlBombTarpit(HttpDeflateTarpit):
-    def _make_deflate(self):
+    def _make_deflate(self, compressobj):
         self.logger.info("creating bomb...")
         # Don't use gzip, because gzip container contains uncompressed length
         # zlib stream have no uncompressed length, force client to decompress it
         # And they are SAME encodings, just difference in container format
-        t = zlib.compressobj(9)
+        t = compressobj
         bomb = bytearray()
         # To successfully make Firefox and Chrome stuck, only zeroes is not enough
         bomb.extend(t.compress(b"<!DOCTYPE html><html><body>"))
