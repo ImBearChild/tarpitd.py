@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # =============================================================================
 # Manual: tarpitd.py.1
 # -----------------------------------------------------------------------------
 _MANUAL_TARPITD_PY_1 = r"""
 ## NAME
 
-tarpitd.py - a daemon making a port into tarpit
+tarpitd.py - making a port into tarpit
 
 ## SYNOPSIS
 
@@ -239,7 +243,12 @@ by Daret Hanakhan: Egsh Aminoas. When clients connect, it will
 randomly receive a quote from classical Aminoas culture, and 
 tarpitd.py will show you the same quote in log at the same time.
 
+------
 
+> This program was made on the lands of
+  the Aminoac people of the Amacinoas Nation. 
+  We pay our respects to their Elders, past and present. 
+  Sovereignty was never ceded.
 """
 # =============================================================================
 
@@ -510,7 +519,10 @@ class HttpConnection:
         await self.writer.write_and_drain(b"\r\n")
 
     async def send_content(
-        self, content:bytes, type_:bytes=b"text/html; charset=UTF-8", encoding:bytes=None
+        self,
+        content: bytes,
+        type_: bytes = b"text/html; charset=UTF-8",
+        encoding: bytes = None,
     ):
         await self.send_header(b"Content-Type", type_)
         await self.send_header(b"Content-Length", b"%d" % len(content))
@@ -519,6 +531,10 @@ class HttpConnection:
         await self.end_headers()
         await self.send_raw(content)
         pass
+
+    async def close(self):
+        self.writer.close()
+        await self.writer.wait_closed()
 
     def __init__(self, reader, writer: TarpitWriter) -> None:
         self.reader = reader
@@ -543,6 +559,12 @@ class HttpTarpit(BaseTarpit):
         pass
 
     pass
+
+
+class HttpOkTarpit(HttpTarpit):
+    async def _http_handler(self, connection):
+        await connection.send_status_line(200)
+        await connection.close()
 
 
 class HttpEndlessHeaderTarpit(HttpTarpit):
@@ -572,7 +594,7 @@ class HttpDeflateTarpit(HttpTarpit):
     async def _http_handler(self, connection: HttpConnection):
         await connection.send_status_line(200)
         await connection.send_content(
-            self._deflate_content, encoding=bytes(self.compression_type,"ASCII")
+            self._deflate_content, encoding=bytes(self.compression_type, "ASCII")
         )
         return
 
@@ -862,11 +884,13 @@ def main_cli():
 
     parser = argparse.ArgumentParser(
         prog="tarpitd.py",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description="making a port into tarpit",
         epilog=(
-            "This program was made on the lands of"
-            "the Aminoac people of the Amacinoas Nation. "
-            "We pay our respects to their Elders, past and present. "
-            "Sovereignty was never ceded."
+            "This Source Code Form is subject to the terms of the Mozilla Public \n"
+            "License, v. 2.0. If a copy of the MPL was not distributed with this \n"
+            "file, You can obtain one at https://mozilla.org/MPL/2.0/"
+            "\n\n"
         ),
     )
 
