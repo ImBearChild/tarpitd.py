@@ -27,6 +27,5 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build]
 include = [
-  "src/*.py",
-  "/tests",
+  "src/*.py"
 ]

@@ -492,11 +492,11 @@ class HttpConnection:
     @staticmethod
     def to_bytes(data) -> bytes:
         t = type(data)
-        if t == bytearray:
+        if t is bytearray:
             return data
-        elif t == bytes:
+        elif t is bytes:
             return data
-        elif t == str:
+        elif t is str:
             return bytes(data, "ASCII")
         else:
             return bytes(data)
@@ -816,7 +816,6 @@ def run_server(server):
 
 
 def run_from_cli(args):
-    server = []
     config = {"tarpits": {}}
     number = 0
     for i in args.serve:

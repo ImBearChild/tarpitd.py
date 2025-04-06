@@ -2,46 +2,65 @@
 
 [中文](./README.zh.md)
 
-Tarpitd.py will partly simulate common internet services,
-for an instance, HTTP, but respond in a way that may make the 
-client not work properly, slowing them down or making them crash.
+Tarpitd.py is a daemon that is part of the tarpit suite, designed to emulate common internet services—like HTTP—in a way that can disrupt client activities, potentially slowing them down or causing crashes.
 
-## Qucik start
+This lightweight, single-file Python program is built for low resource consumption. Its primary goal is to deter malicious or misbehaving clients by intentionally decelerating their interactions.
 
-Note: tarpitd.py require Python 3.11 or above!
+## Quick Start
 
-Just download the script and run it:
+**Note:** Tarpitd.py requires Python 3.11 or higher!
 
-```
+To get started, simply download the script and run it:
+
+```bash
 wget --output-document tarpitd.py \
 https://github.com/ImBearChild/tarpitd.py/raw/main/src/tarpitd.py
 
 python ./tarpitd.py -s endlessh:0.0.0.0:2222
 ```
 
-Now an endlessh tarpit is running on your host listening port 2222.
+The above command starts an endlessh tarpit on your host, listening on port 2222.
 
-## Install
+## Installation
 
-You don't need to run `pip install` or `git clone`. Just download the script called [tarpitd.py](https://github.com/ImBearChild/tarpitd.py/raw/main/src/tarpitd.py) in this repo, and put it somewhere you see fit. 
+You don't need to run `pip install` or clone any repositories—just download the [tarpitd.py](https://github.com/ImBearChild/tarpitd.py/raw/main/src/tarpitd.py) script and place it wherever you prefer.
 
-If you want it act like an executable binary, put it inside your `$PATH` (usually `/usr/local/bin` or `~/.local/bin`), and make it executable by `chmod +x`.
+To use it as an executable, move the script to a directory listed in your `$PATH` (commonly `/usr/local/bin` or `~/.local/bin`) and mark it as executable:
 
-In case that you still want an installation with pip:
-
-```
-pip install \
-git+https://github.com/ImBearChild/tarpitd.py.git@main
+```bash
+chmod +x tarpitd.py
 ```
 
-## Document
+If you’d rather install it via pip, you can do so with:
 
-For online usage document, please refer to [tarpitd.py(7)](./docs/tarpitd.py.7.md) and [tarpitd.py(1)](./docs/tarpitd.py.1.md).
-
-Or you can refer to embedded manual page, if you have the script downloaded:
-
+```bash
+pip install git+https://github.com/ImBearChild/tarpitd.py.git@main
 ```
+
+## Documentation
+
+For detailed usage information, please refer to [tarpitd.py(7)](./docs/tarpitd.py.7.md) and [tarpitd.py(1)](./docs/tarpitd.py.1.md).
+
+If you have downloaded the script, you can also view the built-in manual by executing:
+
+```bash
 python tarpitd.py --manual tarpitd.py.7
 ```
 
-or you can just use text editor open this script.
+Alternatively, open the script in any text editor to view the embedded manual text directly.
+
+## Development and Contribution
+
+Tarpitd.py is designed for easy modification—simply edit the single script file. Contributions are welcome.
+
+To run the tests, execute:
+
+```bash
+python -m unittest discover -vb -s ./src
+```
+
+To update the embedded docs after making changes:
+
+```bash
+python misc/insert_doc.py
+```
