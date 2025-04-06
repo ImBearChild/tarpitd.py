@@ -1,46 +1,37 @@
 import unittest
-import tarpitd
 import asyncio
 import random
+import tarpitd
+import socket
 
-events = []
-
-async def run_server(ser):
-    t = await ser
-    await t.start_serving()
-    
 
 class TestTarpit(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        events.append("setUp")
+        pass
 
     def create_tarpit_obj(self):
         pass
 
     async def asyncSetUp(self):
+        print("[TEST] set up test")
         pit = self.create_tarpit_obj()
         self.port = random.randrange(50000,60000)
         self.server = await pit.create_server("127.0.0.1",self.port)
         async with asyncio.TaskGroup() as tg:
             tg.create_task(self.server.start_serving())
-        events.append("asyncSetUp")
+        print("[TEST] set up done")
 
     def tearDown(self):
-        events.append("tearDown")
+        pass
 
     async def asyncTearDown(self):
+        print("[TEST] teardown test")
         self.server.close()
         await self.server.wait_closed()
-        try:
-            loop = self.server.get_loop()
-            loop.stop()
-            loop.close()
-        except Exception as e:
-            pass
-        events.append("asyncTearDown")
+        print("[TEST] teardown test done")
 
     async def on_cleanup(self):
-        events.append("cleanup")
+        pass
 
 class TestEchoTarpit(TestTarpit):
     def create_tarpit_obj(self):
@@ -70,7 +61,6 @@ class TestHttpTarpit(TestTarpit):
         writer.close()
         await writer.wait_closed()
         self.addAsyncCleanup(self.on_cleanup)
-        pass
 
 if __name__ == '__main__':
     unittest.main()
