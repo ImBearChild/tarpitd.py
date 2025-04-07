@@ -372,7 +372,7 @@ class BaseTarpit:
                             self._config["rate_limit"], writer=writer
                         )
                         await real_handler(reader, tarpit_writer)
-                    except (
+                    except ( # Log client
                         BrokenPipeError,
                         ConnectionAbortedError,
                         ConnectionResetError,
@@ -802,13 +802,17 @@ class SshTransHoldTarpit(SshTarpit):
 
 
 async def async_run_server(server):
-    async with asyncio.TaskGroup() as tg:
-        for i in server:
-            s = await i
-            addr = s.sockets[0].getsockname()
-            logging.debug(f"asyncio serving on {addr}")
-            tg.create_task(s.serve_forever())
-
+    try:
+        async with asyncio.TaskGroup() as tg:
+            for i in server:
+                s = await i
+                addr = s.sockets[0].getsockname()
+                logging.debug(f"asyncio serving on {addr}")
+                tg.create_task(s.serve_forever())
+    except asyncio.CancelledError:
+        logging.info("`async_run_server` task cancelled. shutting down tarpitd.")
+    finally:
+        logging.info("shutdown complete.")
 
 def run_server(server):
     with asyncio.Runner() as runner:
@@ -826,13 +830,14 @@ def run_from_cli(args):
             "bind": [{"host": p[2].partition(":")[0], "port": p[2].partition(":")[2]}],
         }
         number += 1
-    run_from_config(config)
+    run_from_config_dict(config)
 
 
-def run_from_config(config):
+def run_from_config_dict(config):
     server = []
     for k, v in config["tarpits"].items():
         pit = None
+        v["type"] = v["type"].casefold()
         logging.info("tarpitd is serving {}({}) from config".format(v["type"], k))
         logging.debug(f"{v}")
         tarpit_conf = {"rate_limit": v.get("rate_limit")}
@@ -944,7 +949,7 @@ def main_cli():
         if args.serve:
             print("--serve conflicts with --config")
             exit()
-        run_from_config(tomllib.load(args.config))
+        run_from_config_dict(tomllib.load(args.config))
     elif args.serve:
         run_from_cli(args)
     else:
