@@ -890,12 +890,14 @@ def main_cli():
             "License, v. 2.0. If a copy of the MPL was not distributed with this \n"
             "file, You can obtain one at https://mozilla.org/MPL/2.0/"
             "\n\n"
+            "> This program was made on the lands of \n"
+            "  the Aminoac people of the Amacinoas Nation. \n"
+            "  We pay our respects to their Elders, past and present. \n"
+            "  Sovereignty was never ceded. "
+            "\n\n"
         ),
     )
 
-    # parser.add_argument(
-    #     "-c", "--config", help="load configuration file", action="store"
-    # )
     parser.add_argument(
         "-r",
         "--rate-limit",

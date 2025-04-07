@@ -31,4 +31,3 @@ sources = ["src"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/tarpitd.py" = "tarpitd.py"
 "src/tarpitd_import_guard.py" = "tarpitd_import_guard.py"
-## TODO Fix build from git
