@@ -34,7 +34,7 @@ chmod +x tarpitd.py
 If you’d rather install it via pip, you can do so with:
 
 ```bash
-pip install git+https://github.com/ImBearChild/tarpitd.py.git@main
+python -m pip install git+https://github.com/ImBearChild/tarpitd.py.git@main
 ```
 
 ## Documentation

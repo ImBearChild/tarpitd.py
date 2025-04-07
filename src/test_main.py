@@ -2,8 +2,6 @@ import unittest
 import asyncio
 import random
 import tarpitd
-import socket
-
 
 class TestTarpit(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
