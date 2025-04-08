@@ -423,7 +423,7 @@ class BaseTarpit:
 
     def __init__(self, **config) -> None:
         """
-        Classes that inherit this Class SHOULD NOT overload this method.
+        Classes that inherit this class SHOULD NOT overload this method.
         **options can be used to pass argument
         """
         self.logger = logging.getLogger(__name__)
@@ -688,20 +688,19 @@ class HttpDeflateHtmlBombTarpit(HttpDeflateTarpit):
 #
 
 
-class SshMegNumber(enum.IntEnum):
-    """
-    RFC 4250 4.1
-
-    The Message Number is a byte value that describes the payload of a
-    packet.
-    """
-
-    SSH_MSG_IGNORE = 2
-    SSH_MSG_UNIMPLEMENTED = 3
-    SSH_MSG_DEBUG = 4
-
-
 class SshTarpit(BaseTarpit):
+    class SshMegNumber(enum.IntEnum):
+        """
+        RFC 4250 4.1
+
+        The Message Number is a byte value that describes the payload of a
+        packet.
+        """
+
+        SSH_MSG_IGNORE = 2
+        SSH_MSG_UNIMPLEMENTED = 3
+        SSH_MSG_DEBUG = 4
+
     @classmethod
     def make_ssh_packet(cls, payload):
         packet = bytearray()
@@ -721,7 +720,7 @@ class SshTarpit(BaseTarpit):
 
     @classmethod
     def make_ssh_msg_ignore(cls, length):
-        return cls.make_ssh_msg(SshMegNumber.SSH_MSG_IGNORE, bytes(length))
+        return cls.make_ssh_msg(cls.SshMegNumber.SSH_MSG_IGNORE, bytes(length))
 
 
 class SshTransHoldTarpit(SshTarpit):
@@ -820,6 +819,76 @@ class SshTransHoldTarpit(SshTarpit):
     pass
 
 
+#
+# TLS
+#
+
+
+class TlsTarpit(BaseTarpit):
+    PROTOCOL_VERSION_MAGIC = b"\x03\x03"  # TLS 1.2, also apply to 1.3
+
+    # See: TLS 1.2 RFC ttps://www.rfc-editor.org/rfc/rfc5246#page-15
+    class TlsRecordContentType(enum.IntEnum):
+        HANDSHAKE = 22
+
+    @classmethod
+    def make_record(
+        cls, content_type: TlsRecordContentType, fragment_data: bytes
+    ) -> bytes:
+        # TODO: make it
+        rec = (
+            content_type.to_bytes(1, "big")
+            + cls.PROTOCOL_VERSION_MAGIC
+            + len(fragment_data).to_bytes(2, "big")
+            + fragment_data
+        )
+        return rec
+
+    class TlsHandshakeType(enum.IntEnum):
+        HELLO_REQUEST = 0
+        SERVER_HELLO = 2
+
+    @classmethod
+    def make_handshake_frag(
+        cls, handshake_type: TlsHandshakeType, body: bytes
+    ) -> bytes:
+        frag = handshake_type.to_bytes(1, "big") + len(body).to_bytes(3, "big") + body
+        return frag
+
+    pass
+
+
+class TlsHelloRequestTarpit(TlsTarpit):
+    # RFC 5246:
+    # 
+    # The HelloRequest message MAY be sent by the server at any time.
+    #
+    # HelloRequest is a simple notification that the client should begin
+    # the negotiation process anew.  In response, the client should send
+    # a ClientHello message when convenient. 
+    # 
+    # Servers SHOULD NOT send a
+    # HelloRequest immediately upon the client's initial connection.  It
+    # is the client's job to send a ClientHello at that time.
+    #
+    # This message will be ignored by the client if the client is
+    # currently negotiating a session. 
+    @classmethod
+    def make_hello_request_record(cls) -> bytes:
+        h = cls.make_handshake_frag(cls.TlsHandshakeType.HELLO_REQUEST, b"")
+        return cls.make_record(cls.TlsRecordContentType.HANDSHAKE, h)
+
+    async def _real_handler(self, reader, writer: TarpitWriter):
+        while True:
+            packet = self.make_hello_request_record()
+            await writer.write_and_drain(packet)
+
+    pass
+
+
+# TODO : Long ServerHello
+
+
 async def async_run_server(server):
     try:
         async with asyncio.TaskGroup() as tg:
@@ -867,16 +936,18 @@ def run_from_config_dict(config):
         match v["type"]:
             case "endlessh":
                 pit = EndlessBannerTarpit(**tarpit_conf)
+            case "egsh_aminoas":
+                pit = EgshAminoasTarpit(**tarpit_conf)
             case "http_endless_header":
                 pit = HttpEndlessHeaderTarpit(**tarpit_conf)
             case "http_deflate_size_bomb":
                 pit = HttpDeflateSizeBombTarpit(**tarpit_conf)
             case "http_deflate_html_bomb":
                 pit = HttpDeflateHtmlBombTarpit(**tarpit_conf)
-            case "egsh_aminoas":
-                pit = EgshAminoasTarpit(**tarpit_conf)
             case "ssh_trans_hold":
                 pit = SshTransHoldTarpit(**tarpit_conf)
+            case "tls_endless_hello_request":
+                pit = TlsHelloRequestTarpit(**tarpit_conf)
             case other:
                 print(f"service {other} is not exist!")
                 exit()
@@ -975,7 +1046,7 @@ def main_cli():
     if args.verbose >= 1:
         logger.setLevel(logging.DEBUG)
         formatter = logging.Formatter(
-            fmt="[%(levelname)-8s] %(asctime)s - %(name)s - %(funcName)s - %(message)s",
+            fmt="[%(levelname)-8s - %(asctime)s] [%(name)s - %(funcName)s - %(taskName)s - L%(lineno)d] %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
         handler = logging.StreamHandler(sys.stderr)

@@ -62,8 +62,8 @@ directly send a pre-generated content or several random bytes.
 
 The reality is that when searching online for "how much memory does 
 Apache HTTPd require at least", most answers are hundreds of MB or 
-several GB. But tarpitd.py just need 2.5 MB of ram to serve an HTML 
-bomb, and 4/5 of memory is used by the bomb itself. 
+several GB. But tarpitd.py just need 12 MB of ram to serve an HTML 
+bomb. 
 
 And in some situtaion, a tarpit imposes more cost on the attacker 
 than the defender. The HTML bomb is an good exmaple for this. If an 
@@ -83,6 +83,8 @@ Making the client hang by sending an endless HTTP header lines of
 `Set-Cookie:`. Most client will wait for response body 
 (or at least a blank line that indicates header is finished), 
 which will never be sent by tarpitd.py. 
+Some clients, such as curl, have limited the header size. Those clients will close connection 
+when limit is reached.
 
 #### http_deflate_html_bomb
 
