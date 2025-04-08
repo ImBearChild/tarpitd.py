@@ -39,10 +39,10 @@ A tarpit in tarpitd.py represent a pattern of response.
 
 For an instance, to fight a malicious HTTP client, tarpitd.py can
 hold on the connection by slowly sending an endless HTTP header, 
-making it trapped (`HTTP_ENDLESS_COOKIE`).
+making it trapped (`http_endless_header`).
 Also, tarpitd.py can send a malicious HTML back
 to the malicious client, overloading its HTML parser 
-(`HTTP_DEFLATE_HTML_BOMB`). 
+(`http_deflate_html_bomb`). 
 
 Different responses have different consequences, and different 
 clients may handle the same response differently. So even for one 
