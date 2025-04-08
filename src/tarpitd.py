@@ -262,6 +262,7 @@ import types
 import enum
 import zlib
 import http
+import sys
 
 # module for cli use only will be import when needed
 
@@ -277,12 +278,12 @@ class TarpitWriter:
     async def _write_with_interval(self, data):
         for b in range(0, len(data)):
             await asyncio.sleep(abs(self.rate))
-            try: # Handle Exception, because we are in loop
+            try:  # Handle Exception, because we are in loop
                 self.writer.write(data[b : b + 1])
                 await self.writer.drain()
             except (ConnectionResetError, BrokenPipeError) as e:
                 raise e
-                return 
+                return
         await self.writer.drain()
 
     async def _write_normal(self, data):
@@ -303,7 +304,7 @@ class TarpitWriter:
                 await self.writer.drain()
             except (ConnectionResetError, BrokenPipeError) as e:
                 raise e
-                return 
+                return
         self.writer.write(data[(count) * self.rate :])
         await self.writer.drain()
 
@@ -317,9 +318,7 @@ class TarpitWriter:
         else:
             write_inner = self._write_with_speedlimit
 
-        self.write_and_drain=write_inner
-
-
+        self.write_and_drain = write_inner
 
     def __init__(self, rate, writer: asyncio.StreamWriter) -> None:
         self.writer = writer
@@ -353,6 +352,8 @@ class BaseTarpit:
         return
 
     def log_client(self, event, source, destination, comment=None):
+        if not comment:
+            comment = ""
         self.logger.info(f"client_trace:[ {source} > {destination} ]:{event}:{comment}")
 
     async def _real_handler(self, reader, writer: TarpitWriter):
@@ -389,10 +390,16 @@ class BaseTarpit:
                         ConnectionResetError,
                     ) as e:
                         self.log_client(
-                            "close",
+                            "conn_error",
                             f"{peername[0]}:{peername[1]}",
                             f"{local_address_port}",
                             f"{e}",
+                        )
+                    finally:
+                        self.log_client(
+                            "close",
+                            f"{peername[0]}:{peername[1]}",
+                            f"{local_address_port}",
                         )
                 except Exception as e:
                     self.logger.exception(e)
@@ -409,9 +416,10 @@ class BaseTarpit:
         The user should await on Server.start_serving() or
         Server.serve_forever() to make the server to start accepting connections.
         """
-        return await asyncio.start_server(
+        server = await asyncio.start_server(
             self.wrap_handler(f"{host}:{port}", self._real_handler), host, port
         )
+        return server
 
     def __init__(self, **config) -> None:
         """
@@ -440,7 +448,7 @@ class BaseTarpit:
                 config.pop(k)
 
         self._config |= config
-        self.logger.debug(self._config)
+        self.logger.info("server config: {}".format(self._config), self._config)
         self.sem = asyncio.Semaphore(self._config["max_clients"])
         if not self._config["client_trace"]:
             self.log_client = lambda a: None
@@ -816,12 +824,15 @@ async def async_run_server(server):
     try:
         async with asyncio.TaskGroup() as tg:
             for i in server:
-                s = await i
-                addr = s.sockets[0].getsockname()
-                logging.debug(f"asyncio serving on {addr}")
-                tg.create_task(s.serve_forever())
+                try:
+                    s = await i
+                    addr = s.sockets[0].getsockname()
+                    logging.debug(f"asyncio serving on {addr}")
+                    tg.create_task(s.serve_forever())
+                except OSError as e:
+                    logging.warning(e.strerror)
     except asyncio.CancelledError:
-        logging.info("`async_run_server` task cancelled. shutting down tarpitd.")
+        logging.warning("`async_run_server` task cancelled. shutting down tarpitd.")
     finally:
         logging.info("shutdown complete.")
 
@@ -850,9 +861,9 @@ def run_from_config_dict(config):
     for k, v in config["tarpits"].items():
         pit = None
         v["type"] = v["type"].casefold()
-        logging.info("tarpitd is serving {}({}) from config".format(v["type"], k))
+        logging.info("tarpitd is serving {} ({})".format(v["type"], k))
         logging.debug(f"{v}")
-        tarpit_conf = {"rate_limit": v.get("rate_limit")}
+        tarpit_conf = {"rate_limit": v.get("rate_limit"), "name": k}
         match v["type"]:
             case "endlessh":
                 pit = EndlessBannerTarpit(**tarpit_conf)
@@ -869,8 +880,10 @@ def run_from_config_dict(config):
             case other:
                 print(f"service {other} is not exist!")
                 exit()
+        logging.info("server bind: {}".format(v["bind"]))
         for i in v["bind"]:
             server.append(pit.create_server(host=i["host"], port=i["port"]))
+
     run_server(server)
 
 
@@ -885,17 +898,6 @@ def display_manual_unix(name):
 
 
 def main_cli():
-    logging.basicConfig(
-        level=logging.DEBUG,
-        # format=(
-        #     #"%(name)s:%(levelname)s:%(message)s:"
-        #     "{"
-        #     '"message":"%(message)s",'
-        #     '"created":%(created)f,"levelname":"%(levelname)s","funcName":"%(funcName)s",'
-        #     '"module":"%(module)s","lineno":"%(lineno)d"'
-        #     "}"
-        # ),
-    )
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -942,6 +944,13 @@ def main_cli():
     )
 
     parser.add_argument(
+        "-v",
+        "--verbose",
+        help="become more detailed at output",
+        action="count",
+    )
+
+    parser.add_argument(
         "--manual",
         help="show full manual of this program",
         nargs="?",
@@ -950,6 +959,31 @@ def main_cli():
     )
 
     args = parser.parse_args()
+
+    logger = logging.getLogger()
+    if not args.verbose:
+        args.verbose = 0
+        logger.setLevel(logging.INFO)
+        formatter = logging.Formatter(
+            fmt="[%(levelname)-8s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(formatter)
+        logger.handlers = []
+        logger.addHandler(handler)
+    if args.verbose >= 1:
+        logger.setLevel(logging.DEBUG)
+        formatter = logging.Formatter(
+            fmt="[%(levelname)-8s] %(asctime)s - %(name)s - %(funcName)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(formatter)
+        logger.handlers = []
+        logger.addHandler(handler)
+    if args.verbose >= 2:
+        logging.warning("higher verbose level is not implemented")
 
     if args.manual:
         display_manual_unix(args.manual)
