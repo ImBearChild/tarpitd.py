@@ -27,6 +27,8 @@ def reformat_markdown(text: str) -> str:
                 result.append(_process_paragraph(buffer))
                 buffer = []
             result.append(line.rstrip())
+        elif line.startswith("*"):
+            result.append(line.rstrip())
         elif not line.strip():
             # Empty line: flush buffered paragraph
             if buffer:

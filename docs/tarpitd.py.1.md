@@ -17,13 +17,14 @@ connect to it. For more information on tarpitd.py, please refer to
 
 ## OPTIONS
 
-#### `-c, --config [FILE]`
+#### `-c, --config FILE`
 
 Load configuration from file.
 
 #### `-s, --serve TARPIT:HOST:PORT [SERVICE:HOST:PORT ...]`  
 
 Start a tarpit on specified host and port. 
+
 The name of tarpit is case-insensitive. For the full list of 
 supported tarpits, please refer to 
 [tarpitd.py(7)](./tarpitd.py.7.md)
@@ -31,9 +32,19 @@ supported tarpits, please refer to
 #### `-r RATE, --rate-limit RATE`
 
 Set data transfer rate limit.
+
 Positive value limit transfer speed to RATE *byte* per second.
 Negative value will make program send one byte in RATE second.
 (In other word, negative vale means 1/RATE byte per second.)
+
+#### `--manual MANUAL`
+
+Show built-in manual page. Will open `tarpitd.py.7` by default.
+
+Available manual pages:
+
+* tarpitd.py.7 : Detailed description of tarpitd
+* tarpitd.py.1 : Program usage
 
 ## EXAMPLES
 
