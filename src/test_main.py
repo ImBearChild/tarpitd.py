@@ -14,7 +14,7 @@ class TestTarpit(unittest.IsolatedAsyncioTestCase):
         print("[TEST] set up test")
         pit = self.create_tarpit_obj()
         self.port = random.randrange(50000,60000)
-        self.server = await pit.create_server("127.0.0.1",self.port)
+        self.server = await pit.create_server("127.0.0.2",self.port)
         async with asyncio.TaskGroup() as tg:
             tg.create_task(self.server.start_serving())
         print("[TEST] set up done")
@@ -36,7 +36,7 @@ class TestEchoTarpit(TestTarpit):
         return tarpitd.EchoTarpit(rate_limit=0)
 
     async def test_response(self):
-        reader , writer = await asyncio.open_connection("127.0.0.1", self.port)
+        reader , writer = await asyncio.open_connection("127.0.0.2", self.port)
         writer.write(b"Aminoac\n")
         await writer.drain()
         p = await reader.readline()
@@ -52,7 +52,7 @@ class TestHttpTarpit(TestTarpit):
         return t
 
     async def test_response(self):
-        reader , writer = await asyncio.open_connection("127.0.0.1", self.port)
+        reader , writer = await asyncio.open_connection("127.0.0.2", self.port)
         line = await reader.readline()
         self.assertTrue(line.startswith(b"HTTP"))
         await writer.drain()
