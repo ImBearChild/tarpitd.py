@@ -9,7 +9,7 @@ DOC_START = "# -----------------------------------------------------------------
 SRC_FILE = Path("./src/tarpitd.py")
 DOCS_FOLDER = Path("./docs")
 MANPAGES = ["tarpitd.py.1", "tarpitd.py.7"]
-WRAP_WIDTH = 70
+WRAP_WIDTH = 78
 
 def reformat_markdown(text: str) -> str:
     """

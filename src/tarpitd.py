@@ -19,8 +19,8 @@ tarpitd.py - making a port into tarpit
 
 ## DESCRIPTION
 
-Tarpitd.py will listen on specified ports and trouble clients that
-connect to it. For more information on tarpitd.py, please refer to
+Tarpitd.py will listen on specified ports and trouble clients that connect to
+it. For more information on tarpitd.py, please refer to
 [tarpitd.py(7)](./tarpitd.py.7.md), or use:
 
     tarpitd.py --manual tarpitd.py.7
@@ -39,10 +39,9 @@ insensitive. For the full list of supported tarpits, please refer to
 
 #### `-r RATE, --rate-limit RATE`
 
-Set data transfer rate limit. Positive value limit transfer speed to
-RATE *byte* per second. Negative value will make program send one byte
-in RATE second. (In other word, negative vale means 1/RATE byte per
-second.)
+Set data transfer rate limit. Positive value limit transfer speed to RATE
+*byte* per second. Negative value will make program send one byte in RATE
+second. (In other word, negative vale means 1/RATE byte per second.)
 
 ## EXAMPLES
 
@@ -54,18 +53,17 @@ Start an endlessh tarpit:
 
     tarpitd.py -s endlessh:0.0.0.0:2222
 
-Start an endless HTTP tarpit on 0.0.0.0:8080, send a byte every two
-seconds:
+Start an endless HTTP tarpit on 0.0.0.0:8080, send a byte every two seconds:
 
     tarpitd.py -r-2 -s HTTP_ENDLESS_COOKIE:0.0.0.0:8088
 
-Start an endless HTTP tarpit on 0.0.0.0:8088, limit the transfer speed
-to 1 KB/s:
+Start an endless HTTP tarpit on 0.0.0.0:8088, limit the transfer speed to 1
+KB/s:
 
     tarpitd.py -r1024 -s HTTP_DEFLATE_HTML_BOMB:0.0.0.0:8088
 
-Start two different HTTP tarpit at the same time (the name of tarpit
-is case-insensitive):
+Start two different HTTP tarpit at the same time (the name of tarpit is case-
+insensitive):
 
     tarpitd.py -s http_deflate_html_bomb:127.0.0.1:8080 \
                   HTTP_ENDLESS_COOKIE:0.0.0.0:8088
@@ -91,26 +89,26 @@ available tarpits, please refer to TARPITS section.
 
 ### TL;DR
 
-Tarpitd.py will listen on specified ports and trouble clients that
-connect to it.
+Tarpitd.py will listen on specified ports and trouble clients that connect to
+it.
 
 ### What is a "tarpit"
 
-According to Wikipedia: A tarpit is a service on a computer system
-(usually a server) that purposely delays incoming connections. The
-concept is analogous with a tar pit, in which animals can get bogged
-down and slowly sink under the surface, like in a swamp.
+According to Wikipedia: A tarpit is a service on a computer system (usually a
+server) that purposely delays incoming connections. The concept is analogous
+with a tar pit, in which animals can get bogged down and slowly sink under the
+surface, like in a swamp.
 
-Tarpitd.py will partly simulate common internet services, for an
-instance, HTTP, but respond in a way that may make the client not work
-properly, slow them down or make them crash.
+Tarpitd.py will partly simulate common internet services, for an instance,
+HTTP, but respond in a way that may make the client not work properly, slow
+them down or make them crash.
 
 ### Why I need a "tarpit"
 
-This is actually a good thing in some situations. For example, an evil
-ssh client may connect to port 22, and tries to log with weak
-passwords. Or evil web crawlers can collect information from your
-server, providing help for cracking your server.
+This is actually a good thing in some situations. For example, an evil ssh
+client may connect to port 22, and tries to log with weak passwords. Or evil
+web crawlers can collect information from your server, providing help for
+cracking your server.
 
 You can use tarpit to slow them down.
 
@@ -118,37 +116,35 @@ You can use tarpit to slow them down.
 
 A tarpit in tarpitd.py represent a pattern of response.
 
-For an instance, to fight a malicious HTTP client, tarpitd.py can hold
-on the connection by slowly sending an endless HTTP header, making it
-trapped (`http_endless_header`). Also, tarpitd.py can send a malicious
-HTML back to the malicious client, overloading its HTML parser
-(`http_deflate_html_bomb`).
+For an instance, to fight a malicious HTTP client, tarpitd.py can hold on the
+connection by slowly sending an endless HTTP header, making it trapped
+(`http_endless_header`). Also, tarpitd.py can send a malicious HTML back to
+the malicious client, overloading its HTML parser (`http_deflate_html_bomb`).
 
-Different responses have different consequences, and different clients
-may handle the same response differently. So even for one protocol,
-there may be more than one "tarpit" in tarpitd.py correspond to it.
+Different responses have different consequences, and different clients may
+handle the same response differently. So even for one protocol, there may be
+more than one "tarpit" in tarpitd.py correspond to it.
 
 ### Resource consumption
 
-If implemented correctly, a tarpit consumes fewer resources than its
-"normal" counterpart. Usually, a real server program will process
-request from client and return response to it. But a tarpit don't need
-to implement these parts.
+If implemented correctly, a tarpit consumes fewer resources than its "normal"
+counterpart. Usually, a real server program will process request from client
+and return response to it. But a tarpit don't need to implement these parts.
 
-For example, a real HTTP server will parse HTTP request and call CGI
-(Python, PHP...) to generate a valid response. But tarpitd.py will
-directly send a pre-generated content or several random bytes.
+For example, a real HTTP server will parse HTTP request and call CGI (Python,
+PHP...) to generate a valid response. But tarpitd.py will directly send a pre-
+generated content or several random bytes.
 
-The reality is that when searching online for "how much memory does
-Apache HTTPd require at least", most answers are hundreds of MB or
-several GB. But tarpitd.py just need 2.5 MB of ram to serve an HTML
-bomb, and 4/5 of memory is used by the bomb itself.
+The reality is that when searching online for "how much memory does Apache
+HTTPd require at least", most answers are hundreds of MB or several GB. But
+tarpitd.py just need 2.5 MB of ram to serve an HTML bomb, and 4/5 of memory is
+used by the bomb itself.
 
-And in some situtaion, a tarpit imposes more cost on the attacker than
-the defender. The HTML bomb is an good exmaple for this. If an
-attacker chooses to parse it, he will spend more time than defender.
-And if the attacker is only interested in HTTP header, the time the
-defender spend on generating the bomb is wasted.
+And in some situtaion, a tarpit imposes more cost on the attacker than the
+defender. The HTML bomb is an good exmaple for this. If an attacker chooses to
+parse it, he will spend more time than defender. And if the attacker is only
+interested in HTTP header, the time the defender spend on generating the bomb
+is wasted.
 
 ## TARPITS
 
@@ -158,39 +154,36 @@ defender spend on generating the bomb is wasted.
 
 Tested with client: Firefox, Chromium, curl
 
-Making the client hang by sending an endless HTTP header lines of
-`Set-Cookie:`. Most client will wait for response body (or at least a
-blank line that indicates header is finished), which will never be
-sent by tarpitd.py.
+Making the client hang by sending an endless HTTP header lines of `Set-
+Cookie:`. Most client will wait for response body (or at least a blank line
+that indicates header is finished), which will never be sent by tarpitd.py.
 
 #### http_deflate_html_bomb
 
 Tested with client: Firefox, Chromium
 
-A badly formed HTML compressed by deflate (zlib) will be sent by
-tarpitd.py. It's so bad that most client will waste a lot of time
-(more precisely, CPU time) on parsing it.
+A badly formed HTML compressed by deflate (zlib) will be sent by tarpitd.py.
+It's so bad that most client will waste a lot of time (more precisely, CPU
+time) on parsing it.
 
-Some client won't bother to parse HTML, so this may not useful for
-them. Content sent by this service is always compressed with deflate
-algorithm, no matter if client support it or not. Because it's
-pointless to serve uncompressed garbage, which may cause huge
-potential waste of bandwidth, and most clients support deflate
-algorithm.
+Some client won't bother to parse HTML, so this may not useful for them.
+Content sent by this service is always compressed with deflate algorithm, no
+matter if client support it or not. Because it's pointless to serve
+uncompressed garbage, which may cause huge potential waste of bandwidth, and
+most clients support deflate algorithm.
 
 #### http_deflate_size_bomb
 
 Tested with client: Firefox, Chromium, curl
 
-Feeding client with a lot of compressed zero. The current
-implementation sends a compressed 1 MB file, which is approximately 1
-GB decompressed, plus some invalid HTML code to trick client. And
-deflate compress algorithm has its maximum compression rate limit, at
-1030.3:1.
+Feeding client with a lot of compressed zero. The current implementation sends
+a compressed 1 MB file, which is approximately 1 GB decompressed, plus some
+invalid HTML code to trick client. And deflate compress algorithm has its
+maximum compression rate limit, at 1030.3:1.
 
-Curl won't decompress content by default. If you want to test this
-with curl, please add `--compressed` option to it, and make sure you
-have enough space for decompressed data.
+Curl won't decompress content by default. If you want to test this with curl,
+please add `--compressed` option to it, and make sure you have enough space
+for decompressed data.
 
 ### SSH
 
@@ -198,32 +191,30 @@ have enough space for decompressed data.
 
 Have been tested with client: openssh
 
-Endlessh is a famous ssh tarpit. It keeps SSH clients locked up for
-hours or even days at a time by sending endless banners. Despite its
-name, technically this is not SSH, but an endless banner sender.
-Endless does implement no part of the SSH protocol, and no port
-scanner will think it is SSH (at least nmap and censys don't mark this
-as SSH).
+Endlessh is a famous ssh tarpit. It keeps SSH clients locked up for hours or
+even days at a time by sending endless banners. Despite its name, technically
+this is not SSH, but an endless banner sender. Endless does implement no part
+of the SSH protocol, and no port scanner will think it is SSH (at least nmap
+and censys don't mark this as SSH).
 
 ### ssh_trans_hold
 
 Have been tested with client: openssh
 
-This tarpit will keep the connection open by sending valid SSH
-transport message. It follows IETF RFC 4253 (The Secure Shell (SSH)
-Transport Layer Protocol).
+This tarpit will keep the connection open by sending valid SSH transport
+message. It follows IETF RFC 4253 (The Secure Shell (SSH) Transport Layer
+Protocol).
 
-First, it acts like a normal SSH server, sending identification
-string, and send key exchange message about algorithm negotiation
-after it. But it won't complete the key exchange, instead, sending
-SSH_MSG_IGNORE repeatedly. The standard notes that clients MUST ignore
-those message, but keeping receiving data will keep connection open.
-So those clients will never disconnect.
+First, it acts like a normal SSH server, sending identification string, and
+send key exchange message about algorithm negotiation after it. But it won't
+complete the key exchange, instead, sending SSH_MSG_IGNORE repeatedly. The
+standard notes that clients MUST ignore those message, but keeping receiving
+data will keep connection open. So those clients will never disconnect.
 
-The current implementation reports itself as OpenSSH 8.9 on Ubuntu and
-replays a pre-recorded OpenSSH key exchange algorithm negotiation
-request. This behavior may change in the future and affect the
-reporting results of some port scanners.
+The current implementation reports itself as OpenSSH 8.9 on Ubuntu and replays
+a pre-recorded OpenSSH key exchange algorithm negotiation request. This
+behavior may change in the future and affect the reporting results of some
+port scanners.
 
 ### MISC
 
@@ -233,11 +224,11 @@ Have been tested with client: openssh
 
 This service can be used as an alternative to endlessh.
 
-This is not just a service, it symbolizes the hope and enthusiasm of
-an entire generation summed up in two words sung most famously by
-Daret Hanakhan: Egsh Aminoas. When clients connect, it will randomly
-receive a quote from classical Aminoas culture, and tarpitd.py will
-show you the same quote in log at the same time.
+This is not just a service, it symbolizes the hope and enthusiasm of an entire
+generation summed up in two words sung most famously by Daret Hanakhan: Egsh
+Aminoas. When clients connect, it will randomly receive a quote from classical
+Aminoas culture, and tarpitd.py will show you the same quote in log at the
+same time.
 
 ------
 
@@ -274,7 +265,12 @@ class TarpitWriter:
     async def _write_with_interval(self, data):
         for b in range(0, len(data)):
             await asyncio.sleep(abs(self.rate))
-            self.writer.write(data[b : b + 1])
+            try: # Handle Exception, because we are in loop
+                self.writer.write(data[b : b + 1])
+                await self.writer.drain()
+            except (ConnectionResetError, BrokenPipeError) as e:
+                raise e
+                return 
         await self.writer.drain()
 
     async def _write_normal(self, data):
@@ -290,7 +286,12 @@ class TarpitWriter:
         count = length // self.rate
         for b in range(0, count):
             await asyncio.sleep(1)
-            self.writer.write(data[b * self.rate : (b + 1) * self.rate])
+            try:
+                self.writer.write(data[b * self.rate : (b + 1) * self.rate])
+                await self.writer.drain()
+            except (ConnectionResetError, BrokenPipeError) as e:
+                raise e
+                return 
         self.writer.write(data[(count) * self.rate :])
         await self.writer.drain()
 
@@ -298,11 +299,15 @@ class TarpitWriter:
         logging.debug(f"rate limit: {rate}")
         self.rate = rate
         if rate == 0:
-            self.write_and_drain = self._write_normal
+            write_inner = self._write_normal
         elif rate < 0:
-            self.write_and_drain = self._write_with_interval
+            write_inner = self._write_with_interval
         else:
-            self.write_and_drain = self._write_with_speedlimit
+            write_inner = self._write_with_speedlimit
+
+        self.write_and_drain=write_inner
+
+
 
     def __init__(self, rate, writer: asyncio.StreamWriter) -> None:
         self.writer = writer
