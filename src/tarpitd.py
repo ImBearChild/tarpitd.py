@@ -255,6 +255,7 @@ tarpitd.py will show you the same quote in log at the same time.
 
 __version__ = "0.1.0"
 
+# ruff: noqa: E402
 import asyncio
 import random
 import logging
@@ -298,6 +299,7 @@ class TarpitWriter:
         await self.writer.drain()
 
     def change_rate_limit(self, rate: int):
+        logging.debug(f"rate limit: {rate}")
         self.rate = rate
         if rate == 0:
             self.write_and_drain = self._write_normal
@@ -307,18 +309,11 @@ class TarpitWriter:
             self.write_and_drain = self._write_with_speedlimit
 
     def __init__(self, rate, writer: asyncio.StreamWriter) -> None:
-        self.rate = rate
         self.writer = writer
         self.drain = writer.drain
         self.close = writer.close
         self.wait_closed = writer.wait_closed
-        if rate == 0:
-            self.write_and_drain = self._write_normal
-        elif rate < 0:
-            self.write_and_drain = self._write_with_interval
-        else:
-            self.write_and_drain = self._write_with_speedlimit
-
+        self.change_rate_limit(rate)
     pass
 
 
@@ -354,7 +349,7 @@ class BaseTarpit:
         """
         raise NotImplementedError
 
-    def wrap_handler(self, source_hint, real_handler: types.FunctionType):
+    def wrap_handler(self, local_address_port, real_handler: types.FunctionType):
         """
         This closure is used to pass listening address and port to
         handler running in asyncio
@@ -366,7 +361,7 @@ class BaseTarpit:
                     try:
                         peername = writer.get_extra_info("peername")
                         self.log_client(
-                            "open", f"{peername[0]}:{peername[1]}", f"{source_hint}"
+                            "open", f"{peername[0]}:{peername[1]}", f"{local_address_port}"
                         )
                         tarpit_writer = TarpitWriter(
                             self._config["rate_limit"], writer=writer
@@ -380,7 +375,7 @@ class BaseTarpit:
                         self.log_client(
                             "close",
                             f"{peername[0]}:{peername[1]}",
-                            f"{source_hint}",
+                            f"{local_address_port}",
                             f"{e}",
                         )
                 except Exception as e:
@@ -413,18 +408,20 @@ class BaseTarpit:
         # Merge default config with method resolution order
         mro = self.__class__.__mro__
         for parent in reversed(mro):
-            if parent == object:
+            if parent is object:
                 continue
             if t := getattr(parent, "_DEFAULT_CONFIG", None):
                 self.logger.debug(
                     "merge default options from {}".format(parent.__name__)
                 )
                 self._config |= t.fget()
+                
             # print("options: {}".format(options))
+        
 
         # Remove None item from config
         for k, v in config.copy().items():
-            if not v:
+            if v is None:
                 config.pop(k)
 
         self._config |= config
