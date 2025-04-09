@@ -1,0 +1,8 @@
+site_name: Tarpitd.py
+
+nav:
+  - Home: index.md
+  - Manual:
+    - tarpitd.py.1.md
+    - tarpitd.py.7.md
+    - tarpitd.conf.5.md
