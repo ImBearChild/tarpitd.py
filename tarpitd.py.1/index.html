@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        
+        <link rel="shortcut icon" href="../img/favicon.ico">
+        <title>Tarpitd.py.1 - Tarpitd.py</title>
+        <link href="../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../css/brands.min.css" rel="stylesheet">
+        <link href="../css/solid.min.css" rel="stylesheet">
+        <link href="../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../css/base.css" rel="stylesheet">
+        <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" >
+        <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" disabled>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+        <script>hljs.highlightAll();</script> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="..">Tarpitd.py</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item">
+                                <a href=".." class="nav-link">Home</a>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle active" aria-current="page" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Manual</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="./" class="dropdown-item active" aria-current="page">Tarpitd.py.1</a>
+</li>
+                                    
+<li>
+    <a href="../tarpitd.py.7.md" class="dropdown-item">None</a>
+</li>
+                                    
+<li>
+    <a href="../tarpitd.conf.5/" class="dropdown-item">Tarpitd.conf.5</a>
+</li>
+                                </ul>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                        <li class="nav-item">
+                            <a href="#" class="nav-link" data-bs-toggle="modal" data-bs-target="#mkdocs_search_modal">
+                                <i class="fa fa-search"></i> Search
+                            </a>
+                        </li>
+                            <li class="nav-item">
+                                <a rel="prev" href=".." class="nav-link">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a rel="next" href="../tarpitd.conf.5/" class="nav-link">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </a>
+                            </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="2"><a href="#name" class="nav-link">NAME</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
+            <li class="nav-item" data-bs-level="2"><a href="#synopsis" class="nav-link">SYNOPSIS</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
+            <li class="nav-item" data-bs-level="2"><a href="#description" class="nav-link">DESCRIPTION</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
+            <li class="nav-item" data-bs-level="2"><a href="#options" class="nav-link">OPTIONS</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
+            <li class="nav-item" data-bs-level="2"><a href="#tarpit-pattern" class="nav-link">TARPIT PATTERN</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
+            <li class="nav-item" data-bs-level="2"><a href="#examples" class="nav-link">EXAMPLES</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
+            <li class="nav-item" data-bs-level="2"><a href="#author" class="nav-link">AUTHOR</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h2 id="name">NAME</h2>
+<p>tarpitd.py - making a port into tarpit</p>
+<h2 id="synopsis">SYNOPSIS</h2>
+<pre><code>tarpitd.py [-h] [-r RATE] [-c [FILE]]
+    [-s SERVICE:HOST:PORT [SERVICE:HOST:PORT ...]] [--manual]
+</code></pre>
+<h2 id="description">DESCRIPTION</h2>
+<p>Tarpitd.py will listen on specified ports and trouble clients that 
+connect to it. </p>
+<h2 id="options">OPTIONS</h2>
+<h4 id="-c-config-file"><code>-c, --config FILE</code></h4>
+<p>Load configuration from file.</p>
+<h4 id="-s-serve-patternhostport-servicehostport"><code>-s, --serve PATTERN:HOST:PORT [SERVICE:HOST:PORT ...]</code></h4>
+<p>Start a tarpit pattern on specified host and port. </p>
+<p>The name of pattern is case-insensitive. For the full list of 
+supported patterns, please refer to lines below.</p>
+<h4 id="-r-rate-rate-limit-rate"><code>-r RATE, --rate-limit RATE</code></h4>
+<p>Set data transfer rate limit.</p>
+<p>Positive value limit transfer speed to RATE <em>byte</em> per second.
+Negative value will make program send one byte in RATE second.
+(In other word, negative vale means 1/RATE byte per second.)</p>
+<h4 id="-manual-manual"><code>--manual MANUAL</code></h4>
+<p>Show built-in manual page. Will open <code>tarpitd.py.1</code> by default.</p>
+<p>Available manual pages:</p>
+<ul>
+<li>tarpitd.py.1 : Program usage</li>
+<li>tarpitd.conf.5 : Configuration file format</li>
+</ul>
+<h2 id="tarpit-pattern">TARPIT PATTERN</h2>
+<h3 id="http">HTTP</h3>
+<h4 id="http_endless_header">http_endless_header</h4>
+<p>Tested with client: Firefox, Chromium, curl</p>
+<p>Making the client hang by sending an endless HTTP header lines of
+<code>Set-Cookie:</code>. Some client will wait for response body 
+(or at least a blank line that indicates header is finished), 
+which will never be sent by tarpitd.py. 
+Some clients, such as curl, have limited the header size. Those clients will close connection 
+when limit is reached.</p>
+<h4 id="http_deflate_html_bomb">http_deflate_html_bomb</h4>
+<p>Tested with client: Firefox, Chromium</p>
+<p>A badly formed HTML compressed by deflate (zlib) will be sent by 
+tarpitd.py. It's so bad that most client will waste a lot of time
+(more precisely, CPU time) on parsing it.</p>
+<p>Some client won't bother to parse HTML, so this may not useful
+for them. Content sent by this service is always compressed with
+deflate algorithm, no matter if client support it or not.
+Because it's pointless to serve uncompressed garbage, which
+may cause huge potential waste of bandwidth, and most
+clients support deflate algorithm.</p>
+<h4 id="http_deflate_size_bomb">http_deflate_size_bomb</h4>
+<p>Tested with client: Firefox, Chromium, curl</p>
+<p>Feeding client with a lot of compressed zero. The current 
+implementation sends a compressed 1 MB file, which is approximately 
+1 GB decompressed, plus some invalid HTML code to trick client.
+And deflate compress algorithm has its maximum compression 
+rate limit, at 1030.3:1.</p>
+<p>Curl won't decompress content by default. If you want to test this 
+with curl, please add <code>--compressed</code> option to it, and make sure you
+have enough space for decompressed data.</p>
+<h3 id="ssh">SSH</h3>
+<h4 id="endlessh">endlessh</h4>
+<p>Have been tested with client: openssh</p>
+<p>Endlessh is a famous ssh tarpit. It keeps SSH clients locked up for
+hours or even days at a time by sending endless banners. Despite its 
+name, technically this is not SSH, but an endless banner sender.
+Endless does implement no part of the SSH protocol, and no port 
+scanner will think it is SSH (at least nmap and censys don't mark 
+this as SSH).</p>
+<h3 id="ssh_trans_hold">ssh_trans_hold</h3>
+<p>Have been tested with client: openssh</p>
+<p>This tarpit will keep the connection open by sending valid SSH 
+transport message. It follows IETF RFC 4253, which defines the SSH
+protocol. </p>
+<p>First, it acts like a normal SSH server, sending server identification 
+string, and send key exchange message about algorithm negotiation 
+after it. But it won't complete the key exchange, instead, sending 
+SSH_MSG_IGNORE repeatedly. The standard notes that clients MUST 
+ignore those message, but keeping receiving data will keep 
+connection open. So those clients will never disconnect.</p>
+<p>The current implementation reports itself as OpenSSH 8.9 on Ubuntu 
+and replays a pre-recorded OpenSSH key exchange algorithm 
+negotiation request. This behavior may change in the future and 
+affect the reporting results of some port scanners.</p>
+<h3 id="misc">MISC</h3>
+<h4 id="egsh_aminoas">egsh_aminoas</h4>
+<p>Have been tested with client: openssh</p>
+<p>This service can be used as an alternative to endlessh.</p>
+<p>This is not just a service, it symbolizes the hope and enthusiasm 
+of an entire generation summed up in two words sung most famously 
+by Daret Hanakhan: Egsh Aminoas. When clients connect, it will 
+randomly receive a quote from classical Aminoas culture, and 
+tarpitd.py will show you the same quote in log at the same time.</p>
+<h2 id="examples">EXAMPLES</h2>
+<p>Print this manual:</p>
+<pre><code>tarpitd.py --manual
+</code></pre>
+<p>Start an endlessh tarpit:</p>
+<pre><code>tarpitd.py -s endlessh:0.0.0.0:2222
+</code></pre>
+<p>Start an endless HTTP tarpit on 0.0.0.0:8080, send a byte every two
+seconds:</p>
+<pre><code>tarpitd.py -r-2 -s HTTP_ENDLESS_COOKIE:0.0.0.0:8088
+</code></pre>
+<p>Start an endless HTTP tarpit on 0.0.0.0:8088, limit the transfer speed
+to 1 KB/s:</p>
+<pre><code>tarpitd.py -r1024 -s HTTP_DEFLATE_HTML_BOMB:0.0.0.0:8088
+</code></pre>
+<p>Start two different HTTP tarpit at the same time
+(the name of pattern is case-insensitive):</p>
+<pre><code>tarpitd.py -s http_deflate_html_bomb:127.0.0.1:8080 \
+              HTTP_ENDLESS_COOKIE:0.0.0.0:8088
+</code></pre>
+<h2 id="author">AUTHOR</h2>
+<p>Nianqing Yao [imbearchild at outlook.com]</p>
+<hr />
+<blockquote>
+<p>This program was made on the lands of
+  the Aminoac people of the Amacinoas Nation. 
+  We pay our respects to their Elders, past and present. 
+  Sovereignty was never ceded.</p>
+</blockquote></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../js/base.js"></script>
+        <script src="../search/main.js"></script>
+
+        <div class="modal" id="mkdocs_search_modal" tabindex="-1" role="dialog" aria-labelledby="searchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="searchModalLabel">Search</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>From here you can search these documents. Enter your search terms below.</p>
+                <form>
+                    <div class="form-group">
+                        <input type="search" class="form-control" placeholder="Search..." id="mkdocs-search-query" title="Type search term here">
+                    </div>
+                </form>
+                <div id="mkdocs-search-results" data-no-results-text="No results found"></div>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div><div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>
