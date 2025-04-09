@@ -20,10 +20,7 @@ tarpitd.py - making a port into tarpit
 ## DESCRIPTION
 
 Tarpitd.py will listen on specified ports and trouble clients that connect to
-it. For more information on tarpitd.py, please refer to
-[tarpitd.py(7)](./tarpitd.py.7.md), or use:
-
-    tarpitd.py --manual tarpitd.py.7
+it.
 
 ## OPTIONS
 
@@ -31,12 +28,12 @@ it. For more information on tarpitd.py, please refer to
 
 Load configuration from file.
 
-#### `-s, --serve TARPIT:HOST:PORT [SERVICE:HOST:PORT ...]`
+#### `-s, --serve PATTERN:HOST:PORT [SERVICE:HOST:PORT ...]`
 
-Start a tarpit on specified host and port.
+Start a tarpit pattern on specified host and port.
 
-The name of tarpit is case-insensitive. For the full list of supported
-tarpits, please refer to [tarpitd.py(7)](./tarpitd.py.7.md)
+The name of pattern is case-insensitive. For the full list of supported
+patterns, please refer to lines below.
 
 #### `-r RATE, --rate-limit RATE`
 
@@ -48,117 +45,14 @@ means 1/RATE byte per second.)
 
 #### `--manual MANUAL`
 
-Show built-in manual page. Will open `tarpitd.py.7` by default.
+Show built-in manual page. Will open `tarpitd.py.1` by default.
 
 Available manual pages:
 
-* tarpitd.py.7 : Detailed description of tarpitd
 * tarpitd.py.1 : Program usage
+* tarpitd.conf.5 : Configuration file format
 
-## EXAMPLES
-
-Print this manual:
-
-    tarpitd.py --manual
-
-Start an endlessh tarpit:
-
-    tarpitd.py -s endlessh:0.0.0.0:2222
-
-Start an endless HTTP tarpit on 0.0.0.0:8080, send a byte every two seconds:
-
-    tarpitd.py -r-2 -s HTTP_ENDLESS_COOKIE:0.0.0.0:8088
-
-Start an endless HTTP tarpit on 0.0.0.0:8088, limit the transfer speed to 1
-KB/s:
-
-    tarpitd.py -r1024 -s HTTP_DEFLATE_HTML_BOMB:0.0.0.0:8088
-
-Start two different HTTP tarpit at the same time (the name of tarpit is case-
-insensitive):
-
-    tarpitd.py -s http_deflate_html_bomb:127.0.0.1:8080 \
-                  HTTP_ENDLESS_COOKIE:0.0.0.0:8088
-
-## AUTHOR
-
-Nianqing Yao [imbearchild at outlook.com]
-"""
-# =============================================================================
-
-# =============================================================================
-# Manual: tarpitd.py.7
-# -----------------------------------------------------------------------------
-_MANUAL_TARPITD_PY_7 = r""" 
-## NAME
-
-tarpitd.py - information about tarpit services in tarpitd.py
-
-## GENERAL DESCRIPTION
-
-Note: This section is for general information. And for description on
-available tarpits, please refer to TARPITS section.
-
-### TL;DR
-
-Tarpitd.py will listen on specified ports and trouble clients that connect to
-it.
-
-### What is a "tarpit"
-
-According to Wikipedia: A tarpit is a service on a computer system (usually a
-server) that purposely delays incoming connections. The concept is analogous
-with a tar pit, in which animals can get bogged down and slowly sink under the
-surface, like in a swamp.
-
-Tarpitd.py will partly simulate common internet services, for an instance,
-HTTP, but respond in a way that may make the client not work properly, slow
-them down or make them crash.
-
-### Why I need a "tarpit"
-
-This is actually a good thing in some situations. For example, an evil ssh
-client may connect to port 22, and tries to log with weak passwords. Or evil
-web crawlers can collect information from your server, providing help for
-cracking your server.
-
-You can use tarpit to slow them down.
-
-### What is a service in tarpitd.py
-
-A tarpit in tarpitd.py represent a pattern of response.
-
-For an instance, to fight a malicious HTTP client, tarpitd.py can hold on the
-connection by slowly sending an endless HTTP header, making it trapped
-(`http_endless_header`). Also, tarpitd.py can send a malicious HTML back to
-the malicious client, overloading its HTML parser (`http_deflate_html_bomb`).
-
-Different responses have different consequences, and different clients may
-handle the same response differently. So even for one protocol, there may be
-more than one "tarpit" in tarpitd.py correspond to it.
-
-### Resource consumption
-
-If implemented correctly, a tarpit consumes fewer resources than its "normal"
-counterpart. Usually, a real server program will process request from client
-and return response to it. But a tarpit don't need to implement these parts.
-
-For example, a real HTTP server will parse HTTP request and call CGI (Python,
-PHP...) to generate a valid response. But tarpitd.py will directly send a pre-
-generated content or several random bytes.
-
-The reality is that when searching online for "how much memory does Apache
-HTTPd require at least", most answers are hundreds of MB or several GB. But
-tarpitd.py just need 2.5 MB of ram to serve an HTML bomb, and 4/5 of memory is
-used by the bomb itself.
-
-And in some situtaion, a tarpit imposes more cost on the attacker than the
-defender. The HTML bomb is an good exmaple for this. If an attacker chooses to
-parse it, he will spend more time than defender. And if the attacker is only
-interested in HTTP header, the time the defender spend on generating the bomb
-is wasted.
-
-## TARPITS
+## TARPIT PATTERN
 
 ### HTTP
 
@@ -167,8 +61,10 @@ is wasted.
 Tested with client: Firefox, Chromium, curl
 
 Making the client hang by sending an endless HTTP header lines of `Set-
-Cookie:`. Most client will wait for response body (or at least a blank line
+Cookie:`. Some client will wait for response body (or at least a blank line
 that indicates header is finished), which will never be sent by tarpitd.py.
+Some clients, such as curl, have limited the header size. Those clients will
+close connection when limit is reached.
 
 #### http_deflate_html_bomb
 
@@ -214,14 +110,14 @@ and censys don't mark this as SSH).
 Have been tested with client: openssh
 
 This tarpit will keep the connection open by sending valid SSH transport
-message. It follows IETF RFC 4253 (The Secure Shell (SSH) Transport Layer
-Protocol).
+message. It follows IETF RFC 4253, which defines the SSH protocol.
 
-First, it acts like a normal SSH server, sending identification string, and
-send key exchange message about algorithm negotiation after it. But it won't
-complete the key exchange, instead, sending SSH_MSG_IGNORE repeatedly. The
-standard notes that clients MUST ignore those message, but keeping receiving
-data will keep connection open. So those clients will never disconnect.
+First, it acts like a normal SSH server, sending server identification string,
+and send key exchange message about algorithm negotiation after it. But it
+won't complete the key exchange, instead, sending SSH_MSG_IGNORE repeatedly.
+The standard notes that clients MUST ignore those message, but keeping
+receiving data will keep connection open. So those clients will never
+disconnect.
 
 The current implementation reports itself as OpenSSH 8.9 on Ubuntu and replays
 a pre-recorded OpenSSH key exchange algorithm negotiation request. This
@@ -242,12 +138,49 @@ Aminoas. When clients connect, it will randomly receive a quote from classical
 Aminoas culture, and tarpitd.py will show you the same quote in log at the
 same time.
 
+## EXAMPLES
+
+Print this manual:
+
+    tarpitd.py --manual
+
+Start an endlessh tarpit:
+
+    tarpitd.py -s endlessh:0.0.0.0:2222
+
+Start an endless HTTP tarpit on 0.0.0.0:8080, send a byte every two seconds:
+
+    tarpitd.py -r-2 -s HTTP_ENDLESS_COOKIE:0.0.0.0:8088
+
+Start an endless HTTP tarpit on 0.0.0.0:8088, limit the transfer speed to 1
+KB/s:
+
+    tarpitd.py -r1024 -s HTTP_DEFLATE_HTML_BOMB:0.0.0.0:8088
+
+Start two different HTTP tarpit at the same time (the name of pattern is case-
+insensitive):
+
+    tarpitd.py -s http_deflate_html_bomb:127.0.0.1:8080 \
+                  HTTP_ENDLESS_COOKIE:0.0.0.0:8088
+
+## AUTHOR
+
+Nianqing Yao [imbearchild at outlook.com]
+
 ------
 
 > This program was made on the lands of
   the Aminoac people of the Amacinoas Nation.
   We pay our respects to their Elders, past and present.
   Sovereignty was never ceded.
+"""
+# =============================================================================
+
+# =============================================================================
+# Manual: tarpitd.conf.5
+# -----------------------------------------------------------------------------
+_MANUAL_TARPITD_CONF_5 = r""" 
+
 """
 # =============================================================================
 
@@ -894,9 +827,6 @@ class TlsHelloRequestTarpit(TlsTarpit):
     pass
 
 
-
-
-
 async def async_run_server(server):
     try:
         async with asyncio.TaskGroup() as tg:
@@ -925,7 +855,7 @@ def run_from_cli(args):
     for i in args.serve:
         p = i.casefold().partition(":")
         config["tarpits"][f"cli_{number}"] = {
-            "type": p[0],
+            "pattern": p[0],
             "rate_limit": args.rate_limit,
             "bind": [{"host": p[2].partition(":")[0], "port": p[2].partition(":")[2]}],
         }
@@ -937,11 +867,11 @@ def run_from_config_dict(config):
     server = []
     for k, v in config["tarpits"].items():
         pit = None
-        v["type"] = v["type"].casefold()
-        logging.info("tarpitd is serving {} ({})".format(v["type"], k))
+        v["pattern"] = v["pattern"].casefold()
+        logging.info("tarpitd is serving {} ({})".format(v["pattern"], k))
         logging.debug(f"{v}")
         tarpit_conf = {"rate_limit": v.get("rate_limit"), "name": k}
-        match v["type"]:
+        match v["pattern"]:
             case "endlessh":
                 pit = EndlessBannerTarpit(**tarpit_conf)
             case "egsh_aminoas":
@@ -973,7 +903,7 @@ def display_manual_unix(name):
         case "tarpitd.py.1":
             subprocess.run("less", input=_MANUAL_TARPITD_PY_1.encode())
         case "tarpitd.py.7":
-            subprocess.run("less", input=_MANUAL_TARPITD_PY_7.encode())
+            subprocess.run("less", input=_MANUAL_TARPITD_CONF_5.encode())
 
 
 def main_cli():
@@ -1013,11 +943,12 @@ def main_cli():
         type=argparse.FileType("rb"),
     )
 
+    # TODO: IPv6 support of cli ( conf is supported )
     parser.add_argument(
         "-s",
         "--serve",
-        help="serve specified tarpit",
-        metavar="TARPIT:HOST:PORT",
+        help="serve specified tarpit pattern",
+        metavar="PATTERN:HOST:PORT",
         action="extend",
         nargs="+",
     )
