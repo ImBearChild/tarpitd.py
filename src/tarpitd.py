@@ -475,6 +475,17 @@ class EchoTarpit(BaseTarpit):
 
 
 class EndlessBannerTarpit(BaseTarpit):
+    # For SSH
+
+    # The server MAY send other lines of data before sending the version
+    # string.  Each line SHOULD be terminated by a Carriage Return and Line
+    # Feed.  Such lines MUST NOT begin with "SSH-", and SHOULD be encoded
+    # in ISO-10646 UTF-8 [RFC3629] (language is not specified).  Clients
+    # MUST be able to process such lines.  Such lines MAY be silently
+    # ignored, or MAY be displayed to the client user.  If they are
+    # displayed, control character filtering, as discussed in [SSH-ARCH],
+    # SHOULD be used.  The primary use of this feature is to allow TCP-
+    # wrappers to display an error message before disconnecting.
     async def _real_handler(self, reader, writer: TarpitWriter):
         while True:
             await writer.write_and_drain(b"%x\r\n" % random.randint(0, 2**32))
@@ -689,6 +700,10 @@ class HttpDeflateHtmlBombTarpit(HttpDeflateTarpit):
 
 
 class SshTarpit(BaseTarpit):
+    SSH_VERSION_STRING = b"SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.3\r\n"
+    # pretend to be ubuntu
+    # see: https://svn.nmap.org/nmap/nmap-service-probes
+
     class SshMegNumber(enum.IntEnum):
         """
         RFC 4250 4.1
@@ -784,18 +799,17 @@ class SshTransHoldTarpit(SshTarpit):
         )
 
     async def _real_handler(self, reader, writer: TarpitWriter):
-        later_rate = writer.rate
-        if writer.rate < 128:
+        
+        #later_rate = writer.rate
+        #if writer.rate < 128:
             # Change to a faster rate to send the KEX handshake
-            writer.change_rate_limit(128)
+            #writer.change_rate_limit(128)
 
         # Send identifier
         # RFC 4253:
         # Key exchange will begin immediately after sending this identifier.
         await writer.write_and_drain(
-            # pretend to be ubuntu
-            # see: https://svn.nmap.org/nmap/nmap-service-probes
-            b"SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.3\r\n"
+            self.SSH_VERSION_STRING
         )
         # Send a hard-coded key-exchange message
         payload = self.OPENSSH_KEX
@@ -810,19 +824,13 @@ class SshTransHoldTarpit(SshTarpit):
         #   SSH_MSG_SERVICE_REQUEST and SSH_MSG_SERVICE_ACCEPT MUST NOT be
         #   sent);
         while True:
-            writer.change_rate_limit(later_rate)
+            # writer.change_rate_limit(later_rate)
             # SSH_MSG_IGNORE is allowed,
             # so keep sending this will keep connection open
             packet = self.make_ssh_packet(self.make_ssh_msg_ignore(16))
             await writer.write_and_drain(packet)
 
     pass
-
-
-#
-# TLS
-#
-
 
 class TlsTarpit(BaseTarpit):
     PROTOCOL_VERSION_MAGIC = b"\x03\x03"  # TLS 1.2, also apply to 1.3
@@ -886,7 +894,7 @@ class TlsHelloRequestTarpit(TlsTarpit):
     pass
 
 
-# TODO : Long ServerHello
+
 
 
 async def async_run_server(server):
