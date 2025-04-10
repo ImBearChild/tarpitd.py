@@ -15,12 +15,14 @@ tarpitd.py - making a port into tarpit
 ## SYNOPSIS
 
     tarpitd.py [-h] [-r RATE] [-c [FILE]]
-        [-s SERVICE:HOST:PORT [SERVICE:HOST:PORT ...]] [--manual]
+        [-s PATTERN:HOST:PORT [PATTERN:HOST:PORT ...]] [--manual]
 
 ## DESCRIPTION
 
-Tarpitd.py will listen on specified ports and trouble clients that connect to
-it.
+tarpitd.py listens on specified network ports and purposefully delays or
+troubles clients that connect to it. This tool can be used to tie up network
+connections by delivering slow or malformed responses, potentially keeping
+client connections open for extended periods.
 
 ## OPTIONS
 
@@ -28,26 +30,27 @@ it.
 
 Load configuration from file.
 
-#### `-s, --serve PATTERN:HOST:PORT [SERVICE:HOST:PORT ...]`
+#### `-s, --serve PATTERN:HOST:PORT [PATTERN:HOST:PORT ...]`
 
 Start a tarpit pattern on specified host and port.
 
-The name of pattern is case-insensitive. For the full list of supported
-patterns, please refer to lines below.
+The name of PATTERN is case-insensitive. For a complete list of supported
+patterns, see the “TARPIT PATTERN” section below.
 
 #### `-r RATE, --rate-limit RATE`
 
 Set data transfer rate limit.
 
-Positive value limit transfer speed to RATE *byte* per second. Negative value
-will make program send one byte in RATE second. (In other word, negative vale
-means 1/RATE byte per second.)
+A positive value limits the transfer speed to RATE *bytes* per second. A
+negative value causes the program to send one byte every |RATE| seconds
+(effectively 1/|RATE| *bytes* per second).
 
 #### `--manual MANUAL`
 
-Show built-in manual page. Will open `tarpitd.py.1` by default.
+Display the built-in manual page. By default, tarpitd.py will open
+`tarpitd.py.1`.
 
-Available manual pages:
+Available manual pages include:
 
 * tarpitd.py.1 : Program usage
 * tarpitd.conf.5 : Configuration file format
@@ -58,79 +61,82 @@ Available manual pages:
 
 #### http_endless_header
 
-Tested with client: Firefox, Chromium, curl
+Tested with: Firefox, Chromium, curl
 
-Making the client hang by sending an endless HTTP header lines of `Set-
-Cookie:`. Some client will wait for response body (or at least a blank line
-that indicates header is finished), which will never be sent by tarpitd.py.
-Some clients, such as curl, have limited the header size. Those clients will
-close connection when limit is reached.
+Sends an endless stream of HTTP header lines (specifically, `Set-Cookie:`).
+Some clients will wait indefinitely for the header to end (or for a blank line
+indicating the end of the headers), while others (like curl) may have header
+size restrictions and close the connection once the limit is reached.
 
 #### http_deflate_html_bomb
 
-Tested with client: Firefox, Chromium
+Tested with: Firefox, Chromium
 
-A badly formed HTML compressed by deflate (zlib) will be sent by tarpitd.py.
-It's so bad that most client will waste a lot of time (more precisely, CPU
-time) on parsing it.
+Sends a badly formed HTML document compressed using the deflate (zlib)
+algorithm. Most clients will consume significant CPU resources attempting to
+parse the malformed HTML.
 
-Some client won't bother to parse HTML, so this may not useful for them.
-Content sent by this service is always compressed with deflate algorithm, no
-matter if client support it or not. Because it's pointless to serve
-uncompressed garbage, which may cause huge potential waste of bandwidth, and
-most clients support deflate algorithm.
+Note: The response is always compressed with deflate regardless of client
+support, as serving uncompressed output might waste bandwidth. When using
+curl, use the `--compressed` option to trigger decompression and ensure you
+have sufficient disk space to handle the decompressed content.
 
 #### http_deflate_size_bomb
 
-Tested with client: Firefox, Chromium, curl
+Tested with: Firefox, Chromium, curl
 
-Feeding client with a lot of compressed zero. The current implementation sends
-a compressed 1 MB file, which is approximately 1 GB decompressed, plus some
-invalid HTML code to trick client. And deflate compress algorithm has its
-maximum compression rate limit, at 1030.3:1.
+Feeds the client with a large amount of compressed zero data. The current
+implementation sends a compressed 1 MB file that decompresses to approximately
+1 GB, with added invalid HTML to further confuse the client.
 
-Curl won't decompress content by default. If you want to test this with curl,
-please add `--compressed` option to it, and make sure you have enough space
-for decompressed data.
+Note: deflate compress algorithm has its maximum compression rate limit, at
+1030.3:1.
 
 ### SSH
 
 #### endlessh
 
-Have been tested with client: openssh
+Tested with: OpenSSH
 
-Endlessh is a famous ssh tarpit. It keeps SSH clients locked up for hours or
-even days at a time by sending endless banners. Despite its name, technically
-this is not SSH, but an endless banner sender. Endless does implement no part
-of the SSH protocol, and no port scanner will think it is SSH (at least nmap
-and censys don't mark this as SSH).
+endlessh is a well-known SSH tarpit that traps SSH clients by sending endless
+banner messages. Although named “endlessh”, it does not implement the full SSH
+protocol; it rather continuously emits banner data. As a result, port scanners
+(such as nmap and censys) will not mark the port as running a true SSH
+service.
 
 ### ssh_trans_hold
 
-Have been tested with client: openssh
+Tested with: OpenSSH
 
-This tarpit will keep the connection open by sending valid SSH transport
-message. It follows IETF RFC 4253, which defines the SSH protocol.
+This tarpit mimics an SSH server's initial handshake by sending valid SSH
+transport messages and key exchange information (per IETF RFC 4253). However,
+instead of completing the exchange, it repeatedly sends `SSH_MSG_IGNORE`
+messages. Although clients are supposed to ignore these messages according to
+the standard, the continual stream keeps the connection open indefinitely.
 
-First, it acts like a normal SSH server, sending server identification string,
-and send key exchange message about algorithm negotiation after it. But it
-won't complete the key exchange, instead, sending SSH_MSG_IGNORE repeatedly.
-The standard notes that clients MUST ignore those message, but keeping
-receiving data will keep connection open. So those clients will never
-disconnect.
+Note: The implementation advertises itself as OpenSSH 8.9 on Ubuntu and
+replays a pre-recorded SSH key exchange. Future updates may alter aspects of
+this behavior.
 
-The current implementation reports itself as OpenSSH 8.9 on Ubuntu and replays
-a pre-recorded OpenSSH key exchange algorithm negotiation request. This
-behavior may change in the future and affect the reporting results of some
-port scanners.
+### TLS
+
+#### tls_endless_hello_request
+
+Tested with: openssl (cli)
+
+Sends an endless series of HelloRequest messages to the client. According to
+IETF RFC 5246 (the TLS 1.2 specification), clients should ignore extra
+HelloRequest messages during the negotiation phase, effectively keeping the
+connection open.
 
 ### MISC
 
 #### egsh_aminoas
 
-Have been tested with client: openssh
+Tested with: openssh
 
-This service can be used as an alternative to endlessh.
+An alternative to endlessh, this service not only keeps connections open but
+also adds a cultural touch.
 
 This is not just a service, it symbolizes the hope and enthusiasm of an entire
 generation summed up in two words sung most famously by Daret Hanakhan: Egsh
@@ -148,17 +154,16 @@ Start an endlessh tarpit:
 
     tarpitd.py -s endlessh:0.0.0.0:2222
 
-Start an endless HTTP tarpit on 0.0.0.0:8080, send a byte every two seconds:
+Start an endless HTTP tarpit with a 2-second per-byte delay:
 
     tarpitd.py -r-2 -s HTTP_ENDLESS_COOKIE:0.0.0.0:8088
 
-Start an endless HTTP tarpit on 0.0.0.0:8088, limit the transfer speed to 1
-KB/s:
+Start an endless HTTP tarpit with a rate limit of 1 KB/s:
 
     tarpitd.py -r1024 -s HTTP_DEFLATE_HTML_BOMB:0.0.0.0:8088
 
-Start two different HTTP tarpit at the same time (the name of pattern is case-
-insensitive):
+Start two different HTTP tarpit services concurrently (the name of pattern is
+case-insensitive):
 
     tarpitd.py -s http_deflate_html_bomb:127.0.0.1:8080 \
                   HTTP_ENDLESS_COOKIE:0.0.0.0:8088
@@ -180,7 +185,57 @@ Nianqing Yao [imbearchild at outlook.com]
 # Manual: tarpitd.conf.5
 # -----------------------------------------------------------------------------
 _MANUAL_TARPITD_CONF_5 = r""" 
+## NAME
 
+tarpitd.conf - configuration file of tarpitd
+
+## DESCRIPTION
+
+It is a toml format file.
+
+## `[tarpits.<name>]` OBJECT
+
+`<name>`
+
+* Name of this tarpit.
+  For reference in log output. Have no effect on behavior.
+
+`pattern=`
+
+* Specify tarpit pattern.
+  The name of parttern is case-insensitive. For a complete list of supported patterns, see [tarpit.py(1)](./tarpitd.py.1.md).
+
+`rate_limit=`
+
+* Set data transfer rate limit.
+  Follow same rule as [tarpit.py(1)](./tarpitd.py.1.md).
+
+`bind=`
+
+* A list of address and port to listen on.
+  Every item in this list should contain `host` and `port` vaule.
+
+## Example
+
+```toml [tarpits] [tarpits.my_cool_ssh_tarpit] pattern = "ssh_trans_hold"
+rate_limit = -2 bind = [{ host = "127.0.0.1", port = "2222" }]
+
+[tarpits.http_tarpit] pattern = "http_endless_header" rate_limit = 2 bind = [
+  { host = "127.0.0.1", port = "8080" },
+  { host = "::1", port = "8080" },
+  { host = "127.0.0.1", port = "8888" },
+] ```
+
+## AUTHOR
+
+Nianqing Yao [imbearchild at outlook.com]
+
+------
+
+> This program was made on the lands of
+  the Aminoac people of the Amacinoas Nation.
+  We pay our respects to their Elders, past and present.
+  Sovereignty was never ceded.
 """
 # =============================================================================
 
@@ -196,6 +251,7 @@ import enum
 import zlib
 import http
 import sys
+#import typing
 
 # module for cli use only will be import when needed
 
@@ -204,8 +260,7 @@ class TarpitWriter:
     """
     Wraps a asyncio.StreamWriter, adding speed limit on it.
     """
-
-    async def write_and_drain(self, data):
+    async def write_and_drain(self, data: bytes):
         raise NotImplementedError
 
     async def _write_with_interval(self, data):
@@ -251,7 +306,8 @@ class TarpitWriter:
         else:
             write_inner = self._write_with_speedlimit
 
-        self.write_and_drain = write_inner
+        self.write_and_drain = write_inner # type: ignore
+        # Monkey patching
 
     def __init__(self, rate, writer: asyncio.StreamWriter) -> None:
         self.writer = writer
@@ -269,7 +325,7 @@ class BaseTarpit:
     """
 
     @property
-    def _DEFAULT_CONFIG():
+    def _DEFAULT_CONFIG(self):
         """
         Derived classes MAY overriding this in case they want to override default settings
         """
@@ -360,7 +416,7 @@ class BaseTarpit:
         **options can be used to pass argument
         """
         self.logger = logging.getLogger(__name__)
-        self._config = {}
+        self._config:dict = {}
 
         # Merge default config with method resolution order
         mro = self.__class__.__mro__
@@ -371,7 +427,7 @@ class BaseTarpit:
                 self.logger.debug(
                     "merge default options from {}".format(parent.__name__)
                 )
-                self._config |= t.fget()
+                self._config |= t.fget(self)
 
             # print("options: {}".format(options))
 
@@ -384,7 +440,7 @@ class BaseTarpit:
         self.logger.info("server config: {}".format(self._config), self._config)
         self.sem = asyncio.Semaphore(self._config["max_clients"])
         if not self._config["client_trace"]:
-            self.log_client = lambda a: None
+            self.log_client = lambda a: None # type: ignore
         self._setup()
 
 
@@ -435,7 +491,7 @@ class EgshAminoasTarpit(BaseTarpit):
         "Yegm Laminoas": "en:no matter when, my heart yearns for you",
     }
 
-    _aminocese_cache = []
+    _aminocese_cache:list = []
 
     # cSpell:enable
     async def _real_handler(self, reader, writer: TarpitWriter):
@@ -466,7 +522,7 @@ class HttpConnection:
             return bytes(data)
 
     async def send_status_line(
-        self, code: int, phrase: bytes = None, version: bytes = b"HTTP/1.1"
+        self, code: int, version: bytes = b"HTTP/1.1"
     ):
         status = http.HTTPStatus(code)
         await self.writer.write_and_drain(
@@ -486,11 +542,11 @@ class HttpConnection:
         self,
         content: bytes,
         type_: bytes = b"text/html; charset=UTF-8",
-        encoding: bytes = None,
+        encoding: bytes = b"",
     ):
         await self.send_header(b"Content-Type", type_)
         await self.send_header(b"Content-Length", b"%d" % len(content))
-        if encoding:
+        if len(encoding):
             await self.send_header(b"Content-Encoding", encoding)
         await self.end_headers()
         await self.send_raw(content)
@@ -546,7 +602,7 @@ class HttpEndlessHeaderTarpit(HttpTarpit):
 
 class HttpDeflateTarpit(HttpTarpit):
     @property
-    def _DEFAULT_CONFIG():
+    def _DEFAULT_CONFIG(self):
         """
         Derived classes MAY overriding this in case they want to override default settings
         """
@@ -566,6 +622,7 @@ class HttpDeflateTarpit(HttpTarpit):
         raise NotImplementedError
 
     def _setup(self):
+        self._deflate_content = b""
         self.compression_type = self._config["compression_type"]
         match self.compression_type:
             case "gzip":
@@ -579,7 +636,7 @@ class HttpDeflateTarpit(HttpTarpit):
 
 class HttpDeflateSizeBombTarpit(HttpDeflateTarpit):
     @property
-    def _DEFAULT_CONFIG():
+    def _DEFAULT_CONFIG(self):
         """
         Derived classes MAY overriding this in case they want to override default settings
         """

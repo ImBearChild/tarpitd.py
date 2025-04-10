@@ -1,68 +1,38 @@
-# Tarpitd.py
+# tarpitd.py
 
-tarpitd.py - information about tarpit services in tarpitd.py
+tarpitd.py is a lightweight daemon written as a single-file Python program. It implements a variety of response patterns that emulate common Internet services, intentionally disrupting client activities by slowing down connections or even triggering crashes. This deceleration mechanism is particularly useful for deterring malicious or misbehaving clients, all while maintaining a low resource footprint.
 
-## GENERAL DESCRIPTION
+## What Is a Tarpit?
 
-Tarpitd.py will listen on specified ports and trouble clients that 
-connect to it.
+A tarpit, as defined by Wikipedia, is a service on a computer system (typically a server) designed to intentionally delay incoming connections. This concept is analogous to an actual tar pit in nature, where animals become stuck and slowly sink beneath the surface of a swamp. Similarly, an internet tarpit slows down client connections, impeding rapid or automated access.
 
-### What is a "tarpit"
+## Why Use a Tarpit?
 
-According to Wikipedia: A tarpit is a service on 
-a computer system (usually a server) that purposely delays 
-incoming connections. The concept is analogous with a tar pit, in
-which animals can get bogged down and slowly sink under the surface,
-like in a swamp. 
+A tarpit can be highly beneficial in scenarios involving hostile or automated clients. Here are some examples:
 
-Tarpitd.py will partly simulate common internet services,
-for an instance, HTTP, but respond in a way that may make the 
-client not work properly, slow them down or make them crash.
+- **Brute-force Attacks:** A malicious SSH client may repeatedly attempt to log in via port 22 using weak passwords. A tarpit can slow these attempts, increasing the time cost of the attack.
+- **Automated Crawlers:** Malicious web crawlers might try to gather sensitive information from your server. By deliberately slowing down their requests, a tarpit can hinder data collection and reduce the effectiveness of such attacks.
 
-### Why I need a "tarpit"
+By employing a tarpit, you effectively shift the resource burden, imposing higher costs on the attacker while protecting your server's legitimate operations.
 
-This is actually a good thing in some situations.
-For example, an evil ssh client may connect to port 22, and tries to 
-log with weak passwords. Or evil web crawlers can collect information
-from your server, providing help for cracking your server.
+## What Is a "pattern" in tarpitd.py?
 
-You can use tarpit to slow them down.
+In the context of tarpitd.py, a "pattern" refers to a specific response behavior tailored to interact with different protocols and handle various types of client connections. For instance:
 
-### What is a service in tarpitd.py 
+- **HTTP Endless Header:** To combat a malicious HTTP client, tarpitd.py might maintain a connection by slowly transmitting an endless HTTP header. This response keeps the client effectively trapped. (`http_endless_header`)
+- **HTML Bomb:** Alternatively, tarpitd.py can be configured to send a malicious HTML payload that overloads the client's HTML parser, further exhausting its resources. (`http_deflate_html_bomb`)
+- **SSH Transport Hold:** In order to fight against brute-force attackers, tarpitd.py will perform SSH handshake slowly, and send useless message to keep connection open. (`ssh_trans_hold`)
 
-Tarpitd.py can generate many types of response pattern, in other word,
-deal with different protocol and clients.
+Since different response patterns yield different effects—and clients may react in varied ways—tarpitd.py supports multiple tarpit strategies even for a single protocol.
 
-For an instance, to fight a malicious HTTP client, tarpitd.py can
-hold on the connection by slowly sending an endless HTTP header, 
-making it trapped (`http_endless_header`).
-Also, tarpitd.py can send a malicious HTML back
-to the malicious client, overloading its HTML parser 
-(`http_deflate_html_bomb`). 
+## How About Resource Consumption?
 
-Different responses have different consequences, and different 
-clients may handle the same response differently. So even for one 
-protocol, there may be more than one "tarpit" in tarpitd.py 
-correspond to it.
+An efficiently implemented tarpit is specifically designed to consume far fewer resources than a conventional server. Traditional server software processes client requests in full, including parsing requests and generating dynamic responses via CGI (e.g., Python or PHP). In contrast, tarpitd.py bypasses most of these steps, instead sending pre-generated content or even arbitrary bytes.
 
-### Resource consumption
+To put it in perspective:
 
-If implemented correctly, a tarpit consumes fewer resources than its 
-"normal" counterpart. Usually, a real server program will process 
-request from client and return response to it. But a tarpit don't 
-need to implement these parts.
+- A typical HTTP server like Apache or Caddy might require hundreds of megabytes—or even gigabytes—of memory depending on the workload. And it will consume much CPU time to prepare a response.
+- In contrast, tarpitd.py may require as little as 12 MB of RAM to serve something as resource-intensive as an HTML bomb.
+With this bomb pre-generated, the only thing needs to do is sending the response. 
 
-For example, a real HTTP server will parse HTTP request and call CGI 
-(Python, PHP...) to generate a valid response. But tarpitd.py will 
-directly send a pre-generated content or several random bytes.
-
-The reality is that when searching online for "how much memory does 
-Apache HTTPd require at least", most answers are hundreds of MB or 
-several GB. But tarpitd.py just need 12 MB of ram to serve an HTML 
-bomb. 
-
-And in some situation, a tarpit imposes more cost on the attacker 
-than the defender. The HTML bomb is an good example for this. If an 
-attacker chooses to parse it, he will spend more time than defender.
-And if the attacker is only interested in HTTP header, the time the 
-defender spend on generating the bomb is wasted. 
+In many cases, a tarpit not only conserves resources on the defending side but also imposes greater computational and time costs on the attacker. For example, if the attacker attempts to parse the malicious HTML bomb, they may expend significantly more time and resources than the defender did to generate it. Likewise, if an attacker is solely interested in receiving HTTP headers, the defender’s effort to generate a tarpit response may effectively waste the attacker’s time.
