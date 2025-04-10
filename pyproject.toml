@@ -1,30 +1,32 @@
 [project]
 name = "tarpitd"
 version = "0.0.2"
-dependencies = []
-authors = [{ name = "Nianqing Yao", email = "imbeatchild@outlook.com" }]
 description = "A daemon making a port into tarpit"
 readme = "README.md"
 requires-python = ">=3.11"
+authors = [{ name = "Nianqing Yao", email = "imbeatchild@outlook.com" }]
 classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
-    "Operating System :: OS Independent",
-    "Topic :: System :: Networking",
-    "Topic :: Internet",
+  "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Topic :: Internet",
+  "Topic :: System :: Networking",
 ]
+dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/ImBearChild/tarpitd.py"
 Issues = "https://github.com/ImBearChild/tarpitd.py/issues"
 
+[project.scripts]
+"tarpitd.py" = "tarpitd_import_guard:main_cli"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[project.scripts]
-"tarpitd.py" = "tarpitd_import_guard:main_cli"
-
+[tool.hatch]
+[tool.hatch.build]
 [tool.hatch.build.targets.wheel]
 sources = ["src"]
 
@@ -33,9 +35,19 @@ sources = ["src"]
 "src/tarpitd_import_guard.py" = "tarpitd_import_guard.py"
 
 [tool.hatch.env]
-requires = [
-    "hatch-mkdocs",
-]
+requires = ["hatch-mkdocs"]
 
 [tool.hatch.env.collectors.mkdocs.docs]
 path = "mkdocs.yml"
+
+[tool.hatch.envs.hatch-test]
+default-args = ["src"]
+
+[[tool.hatch.envs.hatch-test.matrix]]
+python = ["3.11"]
+
+
+[tool.tombi]
+[tool.tombischema]
+enabled = true
+strict = false
