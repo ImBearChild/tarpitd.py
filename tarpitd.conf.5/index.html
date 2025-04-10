@@ -96,7 +96,12 @@
               </ul>
             </li>
             
-            <li class="nav-item" data-bs-level="2"><a href="#tarpitsname-object" class="nav-link">[tarpits.&lt;name&gt;] OBJECT</a>
+            <li class="nav-item" data-bs-level="2"><a href="#tarpitsname-table" class="nav-link">[tarpits.&lt;name&gt;] Table</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
+            <li class="nav-item" data-bs-level="2"><a href="#client_trace-table" class="nav-link">[client_trace] Table</a>
               <ul class="nav flex-column">
               </ul>
             </li>
@@ -119,42 +124,60 @@
 <p>tarpitd.conf - configuration file of tarpitd</p>
 <h2 id="description">DESCRIPTION</h2>
 <p>It is a toml format file.</p>
-<h2 id="tarpitsname-object"><code>[tarpits.&lt;name&gt;]</code> OBJECT</h2>
-<p><code>&lt;name&gt;</code>  </p>
+<h2 id="tarpitsname-table"><code>[tarpits.&lt;name&gt;]</code> Table</h2>
+<h4 id="name_1"><code>&lt;name&gt;</code></h4>
+<p>Name of this tarpit. </p>
+<p>For reference in log output. Have no effect on behavior.</p>
+<h4 id="pattern-str"><code>pattern=</code> (str)</h4>
+<p>Specify tarpit pattern. </p>
+<p>The name of parttern is case-insensitive. For a complete list of supported patterns, see <a href="../tarpitd.py.1/">tarpit.py(1)</a>.</p>
+<h4 id="rate_limit-int"><code>rate_limit=</code> (int)</h4>
+<p>Set data transfer rate limit. </p>
+<p>Follow same rule as <a href="../tarpitd.py.1/">tarpit.py(1)</a>.</p>
+<h4 id="bind-table"><code>bind=</code> (table)</h4>
+<p>A list of address and port to listen on. </p>
+<p>Every item in this list should contain <code>host</code> and <code>port</code> value, see example below.</p>
+<h4 id="max_clients-int"><code>max_clients=</code> (int)</h4>
 <ul>
-<li>Name of this tarpit. 
-  For reference in log output. Have no effect on behavior.</li>
+<li>Max clients the server will handle. It's calculated per bind port.</li>
 </ul>
-<p><code>pattern=</code>  </p>
-<ul>
-<li>Specify tarpit pattern. 
-  The name of parttern is case-insensitive. For a complete list of supported patterns, see <a href="../tarpitd.py.1/">tarpit.py(1)</a>.</li>
-</ul>
-<p><code>rate_limit=</code> </p>
-<ul>
-<li>Set data transfer rate limit. 
-  Follow same rule as <a href="../tarpitd.py.1/">tarpit.py(1)</a>.</li>
-</ul>
-<p><code>bind=</code>  </p>
-<ul>
-<li>A list of address and port to listen on. 
-  Every item in this list should contain <code>host</code> and <code>port</code> vaule.</li>
-</ul>
+<h2 id="client_trace-table"><code>[client_trace]</code> Table</h2>
+<h4 id="enable-bool"><code>enable=</code> (bool)</h4>
+<p>Enable logging client access.</p>
+<h4 id="stdout-bool"><code>stdout=</code> (bool)</h4>
+<p>Output client trace log to stdout. (If client_trace is enabled.)</p>
+<p>Note: normal runtime log will be print on stderr, this behavior is hard coded. Please use service manager or shell to redirect output if you want to save log file.</p>
+<h4 id="file-str"><code>file=</code> (str)</h4>
+<p>Path to client_trace log file. </p>
 <h2 id="example">Example</h2>
 <pre><code class="language-toml">[tarpits]
 [tarpits.my_cool_ssh_tarpit]
 pattern = &quot;ssh_trans_hold&quot;
+max_clients = 128 
 rate_limit = -2
 bind = [{ host = &quot;127.0.0.1&quot;, port = &quot;2222&quot; }]
 
 [tarpits.http_tarpit]
-pattern = &quot;http_endless_header&quot;
-rate_limit = 2
+pattern = &quot;http_deflate_html_bomb&quot;
+rate_limit = 4096
 bind = [
   { host = &quot;127.0.0.1&quot;, port = &quot;8080&quot; },
   { host = &quot;::1&quot;, port = &quot;8080&quot; },
   { host = &quot;127.0.0.1&quot;, port = &quot;8888&quot; },
 ]
+
+[tarpits.tls_tarpit]
+pattern = &quot;tls_endless_hello_request&quot;
+rate_limit = 1
+bind = [
+  { host = &quot;127.0.0.1&quot;, port = &quot;8443&quot; },
+  { host = &quot;127.0.0.1&quot;, port = &quot;6697&quot; },
+]
+
+[client_trace]
+enable   = true
+file = &quot;./client_trace.log&quot;
+stdout   = true
 </code></pre>
 <h2 id="author">AUTHOR</h2>
 <p>Nianqing Yao [imbearchild at outlook.com]</p>

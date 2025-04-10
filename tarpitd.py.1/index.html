@@ -143,6 +143,9 @@
 <p>Set data transfer rate limit.</p>
 <p>A positive value limits the transfer speed to RATE <em>bytes</em> per second.
 A negative value causes the program to send one byte every |RATE| seconds (effectively 1/|RATE| <em>bytes</em> per second).</p>
+<h4 id="-t-trace-client-file"><code>-t, --trace-client [FILE]</code></h4>
+<p>Log client access to FILE. </p>
+<p>The output is jsonl format. Will log to stdout if FILE is left blank.</p>
 <h4 id="-manual-manual"><code>--manual MANUAL</code></h4>
 <p>Display the built-in manual page. By default, tarpitd.py will open <code>tarpitd.py.1</code>.</p>
 <p>Available manual pages include:</p>
@@ -174,8 +177,9 @@ rate limit, at 1030.3:1.</p>
 <p>Note: The implementation advertises itself as OpenSSH 8.9 on Ubuntu and replays a pre-recorded SSH key exchange. Future updates may alter aspects of this behavior.</p>
 <h3 id="tls">TLS</h3>
 <h4 id="tls_endless_hello_request">tls_endless_hello_request</h4>
-<p>Tested with: openssl (cli)</p>
-<p>Sends an endless series of HelloRequest messages to the client. According to IETF RFC 5246 (the TLS 1.2 specification), clients should ignore extra HelloRequest messages during the negotiation phase, effectively keeping the connection open. </p>
+<p>Tested with: openssl (cli), curl (with openssl)</p>
+<p>Sends an endless series of HelloRequest messages to the client. According to IETF RFC 5246 (the TLS 1.2 specification), clients should ignore extra HelloRequest messages during the negotiation phase, effectively keeping the connection open. It will affect all client use OpenSSL, including curl. </p>
+<p>Firefox will report timeout after 10 seconds. GNU TLS (and Wget using it) will disconnect immediately, complaining about handshake failure.</p>
 <h3 id="misc">MISC</h3>
 <h4 id="egsh_aminoas">egsh_aminoas</h4>
 <p>Tested with: openssh</p>
