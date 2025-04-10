@@ -46,10 +46,6 @@
 </li>
                                     
 <li>
-    <a href="../tarpitd.py.7.md" class="dropdown-item">None</a>
-</li>
-                                    
-<li>
     <a href="../tarpitd.conf.5/" class="dropdown-item">Tarpitd.conf.5</a>
 </li>
                                 </ul>
@@ -133,26 +129,23 @@
 <p>tarpitd.py - making a port into tarpit</p>
 <h2 id="synopsis">SYNOPSIS</h2>
 <pre><code>tarpitd.py [-h] [-r RATE] [-c [FILE]]
-    [-s SERVICE:HOST:PORT [SERVICE:HOST:PORT ...]] [--manual]
+    [-s PATTERN:HOST:PORT [PATTERN:HOST:PORT ...]] [--manual]
 </code></pre>
 <h2 id="description">DESCRIPTION</h2>
-<p>Tarpitd.py will listen on specified ports and trouble clients that 
-connect to it. </p>
+<p>tarpitd.py listens on specified network ports and purposefully delays or troubles clients that connect to it. This tool can be used to tie up network connections by delivering slow or malformed responses, potentially keeping client connections open for extended periods.</p>
 <h2 id="options">OPTIONS</h2>
 <h4 id="-c-config-file"><code>-c, --config FILE</code></h4>
 <p>Load configuration from file.</p>
-<h4 id="-s-serve-patternhostport-servicehostport"><code>-s, --serve PATTERN:HOST:PORT [SERVICE:HOST:PORT ...]</code></h4>
+<h4 id="-s-serve-patternhostport-patternhostport"><code>-s, --serve PATTERN:HOST:PORT [PATTERN:HOST:PORT ...]</code></h4>
 <p>Start a tarpit pattern on specified host and port. </p>
-<p>The name of pattern is case-insensitive. For the full list of 
-supported patterns, please refer to lines below.</p>
+<p>The name of PATTERN is case-insensitive. For a complete list of supported patterns, see the “TARPIT PATTERN” section below.</p>
 <h4 id="-r-rate-rate-limit-rate"><code>-r RATE, --rate-limit RATE</code></h4>
 <p>Set data transfer rate limit.</p>
-<p>Positive value limit transfer speed to RATE <em>byte</em> per second.
-Negative value will make program send one byte in RATE second.
-(In other word, negative vale means 1/RATE byte per second.)</p>
+<p>A positive value limits the transfer speed to RATE <em>bytes</em> per second.
+A negative value causes the program to send one byte every |RATE| seconds (effectively 1/|RATE| <em>bytes</em> per second).</p>
 <h4 id="-manual-manual"><code>--manual MANUAL</code></h4>
-<p>Show built-in manual page. Will open <code>tarpitd.py.1</code> by default.</p>
-<p>Available manual pages:</p>
+<p>Display the built-in manual page. By default, tarpitd.py will open <code>tarpitd.py.1</code>.</p>
+<p>Available manual pages include:</p>
 <ul>
 <li>tarpitd.py.1 : Program usage</li>
 <li>tarpitd.conf.5 : Configuration file format</li>
@@ -160,67 +153,34 @@ Negative value will make program send one byte in RATE second.
 <h2 id="tarpit-pattern">TARPIT PATTERN</h2>
 <h3 id="http">HTTP</h3>
 <h4 id="http_endless_header">http_endless_header</h4>
-<p>Tested with client: Firefox, Chromium, curl</p>
-<p>Making the client hang by sending an endless HTTP header lines of
-<code>Set-Cookie:</code>. Some client will wait for response body 
-(or at least a blank line that indicates header is finished), 
-which will never be sent by tarpitd.py. 
-Some clients, such as curl, have limited the header size. Those clients will close connection 
-when limit is reached.</p>
+<p>Tested with: Firefox, Chromium, curl</p>
+<p>Sends an endless stream of HTTP header lines (specifically, <code>Set-Cookie:</code>). Some clients will wait indefinitely for the header to end (or for a blank line indicating the end of the headers), while others (like curl) may have header size restrictions and close the connection once the limit is reached.</p>
 <h4 id="http_deflate_html_bomb">http_deflate_html_bomb</h4>
-<p>Tested with client: Firefox, Chromium</p>
-<p>A badly formed HTML compressed by deflate (zlib) will be sent by 
-tarpitd.py. It's so bad that most client will waste a lot of time
-(more precisely, CPU time) on parsing it.</p>
-<p>Some client won't bother to parse HTML, so this may not useful
-for them. Content sent by this service is always compressed with
-deflate algorithm, no matter if client support it or not.
-Because it's pointless to serve uncompressed garbage, which
-may cause huge potential waste of bandwidth, and most
-clients support deflate algorithm.</p>
+<p>Tested with: Firefox, Chromium</p>
+<p>Sends a badly formed HTML document compressed using the deflate (zlib) algorithm. Most clients will consume significant CPU resources attempting to parse the malformed HTML.  </p>
+<p>Note: The response is always compressed with deflate regardless of client support, as serving uncompressed output might waste bandwidth. When using curl, use the <code>--compressed</code> option to trigger decompression and ensure you have sufficient disk space to handle the decompressed content.</p>
 <h4 id="http_deflate_size_bomb">http_deflate_size_bomb</h4>
-<p>Tested with client: Firefox, Chromium, curl</p>
-<p>Feeding client with a lot of compressed zero. The current 
-implementation sends a compressed 1 MB file, which is approximately 
-1 GB decompressed, plus some invalid HTML code to trick client.
-And deflate compress algorithm has its maximum compression 
+<p>Tested with: Firefox, Chromium, curl</p>
+<p>Feeds the client with a large amount of compressed zero data. The current implementation sends a compressed 1 MB file that decompresses to approximately 1 GB, with added invalid HTML to further confuse the client. </p>
+<p>Note: deflate compress algorithm has its maximum compression 
 rate limit, at 1030.3:1.</p>
-<p>Curl won't decompress content by default. If you want to test this 
-with curl, please add <code>--compressed</code> option to it, and make sure you
-have enough space for decompressed data.</p>
 <h3 id="ssh">SSH</h3>
 <h4 id="endlessh">endlessh</h4>
-<p>Have been tested with client: openssh</p>
-<p>Endlessh is a famous ssh tarpit. It keeps SSH clients locked up for
-hours or even days at a time by sending endless banners. Despite its 
-name, technically this is not SSH, but an endless banner sender.
-Endless does implement no part of the SSH protocol, and no port 
-scanner will think it is SSH (at least nmap and censys don't mark 
-this as SSH).</p>
+<p>Tested with: OpenSSH</p>
+<p>endlessh is a well-known SSH tarpit that traps SSH clients by sending endless banner messages. Although named “endlessh”, it does not implement the full SSH protocol; it rather continuously emits banner data. As a result, port scanners (such as nmap and censys) will not mark the port as running a true SSH service.</p>
 <h3 id="ssh_trans_hold">ssh_trans_hold</h3>
-<p>Have been tested with client: openssh</p>
-<p>This tarpit will keep the connection open by sending valid SSH 
-transport message. It follows IETF RFC 4253, which defines the SSH
-protocol. </p>
-<p>First, it acts like a normal SSH server, sending server identification 
-string, and send key exchange message about algorithm negotiation 
-after it. But it won't complete the key exchange, instead, sending 
-SSH_MSG_IGNORE repeatedly. The standard notes that clients MUST 
-ignore those message, but keeping receiving data will keep 
-connection open. So those clients will never disconnect.</p>
-<p>The current implementation reports itself as OpenSSH 8.9 on Ubuntu 
-and replays a pre-recorded OpenSSH key exchange algorithm 
-negotiation request. This behavior may change in the future and 
-affect the reporting results of some port scanners.</p>
+<p>Tested with: OpenSSH</p>
+<p>This tarpit mimics an SSH server's initial handshake by sending valid SSH transport messages and key exchange information (per IETF RFC 4253). However, instead of completing the exchange, it repeatedly sends <code>SSH_MSG_IGNORE</code> messages. Although clients are supposed to ignore these messages according to the standard, the continual stream keeps the connection open indefinitely.  </p>
+<p>Note: The implementation advertises itself as OpenSSH 8.9 on Ubuntu and replays a pre-recorded SSH key exchange. Future updates may alter aspects of this behavior.</p>
+<h3 id="tls">TLS</h3>
+<h4 id="tls_endless_hello_request">tls_endless_hello_request</h4>
+<p>Tested with: openssl (cli)</p>
+<p>Sends an endless series of HelloRequest messages to the client. According to IETF RFC 5246 (the TLS 1.2 specification), clients should ignore extra HelloRequest messages during the negotiation phase, effectively keeping the connection open. </p>
 <h3 id="misc">MISC</h3>
 <h4 id="egsh_aminoas">egsh_aminoas</h4>
-<p>Have been tested with client: openssh</p>
-<p>This service can be used as an alternative to endlessh.</p>
-<p>This is not just a service, it symbolizes the hope and enthusiasm 
-of an entire generation summed up in two words sung most famously 
-by Daret Hanakhan: Egsh Aminoas. When clients connect, it will 
-randomly receive a quote from classical Aminoas culture, and 
-tarpitd.py will show you the same quote in log at the same time.</p>
+<p>Tested with: openssh</p>
+<p>An alternative to endlessh, this service not only keeps connections open but also adds a cultural touch.</p>
+<p>This is not just a service, it symbolizes the hope and enthusiasm of an entire generation summed up in two words sung most famously by Daret Hanakhan: Egsh Aminoas. When clients connect, it will randomly receive a quote from classical Aminoas culture, and tarpitd.py will show you the same quote in log at the same time.</p>
 <h2 id="examples">EXAMPLES</h2>
 <p>Print this manual:</p>
 <pre><code>tarpitd.py --manual
@@ -228,15 +188,13 @@ tarpitd.py will show you the same quote in log at the same time.</p>
 <p>Start an endlessh tarpit:</p>
 <pre><code>tarpitd.py -s endlessh:0.0.0.0:2222
 </code></pre>
-<p>Start an endless HTTP tarpit on 0.0.0.0:8080, send a byte every two
-seconds:</p>
+<p>Start an endless HTTP tarpit with a 2-second per-byte delay:</p>
 <pre><code>tarpitd.py -r-2 -s HTTP_ENDLESS_COOKIE:0.0.0.0:8088
 </code></pre>
-<p>Start an endless HTTP tarpit on 0.0.0.0:8088, limit the transfer speed
-to 1 KB/s:</p>
+<p>Start an endless HTTP tarpit with a rate limit of 1 KB/s:</p>
 <pre><code>tarpitd.py -r1024 -s HTTP_DEFLATE_HTML_BOMB:0.0.0.0:8088
 </code></pre>
-<p>Start two different HTTP tarpit at the same time
+<p>Start two different HTTP tarpit services concurrently
 (the name of pattern is case-insensitive):</p>
 <pre><code>tarpitd.py -s http_deflate_html_bomb:127.0.0.1:8080 \
               HTTP_ENDLESS_COOKIE:0.0.0.0:8088

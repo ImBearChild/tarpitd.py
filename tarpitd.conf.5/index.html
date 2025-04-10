@@ -46,10 +46,6 @@
 </li>
                                     
 <li>
-    <a href="../tarpitd.py.7.md" class="dropdown-item">None</a>
-</li>
-                                    
-<li>
     <a href="./" class="dropdown-item active" aria-current="page">Tarpitd.conf.5</a>
 </li>
                                 </ul>
@@ -89,12 +85,86 @@
     
     <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
         <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="2"><a href="#name" class="nav-link">NAME</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
+            <li class="nav-item" data-bs-level="2"><a href="#description" class="nav-link">DESCRIPTION</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
+            <li class="nav-item" data-bs-level="2"><a href="#tarpitsname-object" class="nav-link">[tarpits.&lt;name&gt;] OBJECT</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
+            <li class="nav-item" data-bs-level="2"><a href="#example" class="nav-link">Example</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
+            <li class="nav-item" data-bs-level="2"><a href="#author" class="nav-link">AUTHOR</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
         </ul>
     </div>
 </div></div>
                     <div class="col-md-9" role="main">
 
-</div>
+<h2 id="name">NAME</h2>
+<p>tarpitd.conf - configuration file of tarpitd</p>
+<h2 id="description">DESCRIPTION</h2>
+<p>It is a toml format file.</p>
+<h2 id="tarpitsname-object"><code>[tarpits.&lt;name&gt;]</code> OBJECT</h2>
+<p><code>&lt;name&gt;</code>  </p>
+<ul>
+<li>Name of this tarpit. 
+  For reference in log output. Have no effect on behavior.</li>
+</ul>
+<p><code>pattern=</code>  </p>
+<ul>
+<li>Specify tarpit pattern. 
+  The name of parttern is case-insensitive. For a complete list of supported patterns, see <a href="../tarpitd.py.1/">tarpit.py(1)</a>.</li>
+</ul>
+<p><code>rate_limit=</code> </p>
+<ul>
+<li>Set data transfer rate limit. 
+  Follow same rule as <a href="../tarpitd.py.1/">tarpit.py(1)</a>.</li>
+</ul>
+<p><code>bind=</code>  </p>
+<ul>
+<li>A list of address and port to listen on. 
+  Every item in this list should contain <code>host</code> and <code>port</code> vaule.</li>
+</ul>
+<h2 id="example">Example</h2>
+<pre><code class="language-toml">[tarpits]
+[tarpits.my_cool_ssh_tarpit]
+pattern = &quot;ssh_trans_hold&quot;
+rate_limit = -2
+bind = [{ host = &quot;127.0.0.1&quot;, port = &quot;2222&quot; }]
+
+[tarpits.http_tarpit]
+pattern = &quot;http_endless_header&quot;
+rate_limit = 2
+bind = [
+  { host = &quot;127.0.0.1&quot;, port = &quot;8080&quot; },
+  { host = &quot;::1&quot;, port = &quot;8080&quot; },
+  { host = &quot;127.0.0.1&quot;, port = &quot;8888&quot; },
+]
+</code></pre>
+<h2 id="author">AUTHOR</h2>
+<p>Nianqing Yao [imbearchild at outlook.com]</p>
+<hr />
+<blockquote>
+<p>This program was made on the lands of
+  the Aminoac people of the Amacinoas Nation. 
+  We pay our respects to their Elders, past and present. 
+  Sovereignty was never ceded.</p>
+</blockquote></div>
             </div>
         </div>
 
