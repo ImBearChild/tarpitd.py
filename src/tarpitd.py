@@ -609,6 +609,7 @@ class HttpDeflateTarpit(HttpTarpit):
         return {
             "rate_limit": 16,
             "compression_type": "gzip",
+            # use gzip by default for better compatibility
         }
 
     async def _http_handler(self, connection: HttpConnection):
@@ -643,6 +644,9 @@ class HttpDeflateSizeBombTarpit(HttpDeflateTarpit):
         return {
             "rate_limit": 16,
             "compression_type": "deflate",
+            # Don't use gzip, because gzip container contains uncompressed length
+            # zlib stream have no uncompressed length, force client to decompress it
+            # And they are SAME encodings, just difference in container format
         }
 
     def _make_deflate(self, compressobj):
@@ -663,14 +667,12 @@ class HttpDeflateSizeBombTarpit(HttpDeflateTarpit):
 class HttpDeflateHtmlBombTarpit(HttpDeflateTarpit):
     def _make_deflate(self, compressobj):
         self.logger.info("creating bomb...")
-        # Don't use gzip, because gzip container contains uncompressed length
-        # zlib stream have no uncompressed length, force client to decompress it
-        # And they are SAME encodings, just difference in container format
         t = compressobj
         bomb = bytearray()
         # To successfully make Firefox and Chrome stuck, only zeroes is not enough
+        # Chromium needs 2.1 GB of memory during displaying this page, and SIGSEGV finally.
         bomb.extend(t.compress(b"<!DOCTYPE html><html><body>"))
-        bomb.extend(t.compress(bytes(1024**2)))
+        bomb.extend(t.compress(b"<div>COOL</dd>"*102400))
         bomb.extend(t.compress(b"<div>SUPER</a><em>HOT</em></span>" * 102400))
         bomb.extend(
             t.compress(
@@ -681,7 +683,7 @@ class HttpDeflateHtmlBombTarpit(HttpDeflateTarpit):
         bomb.extend(t.compress(b"<table>MORE!</dd>" * 5))
         bomb.extend(t.flush())
         self._deflate_content = bomb
-        self.logger.info(f"deflate bomb created:{int(len(bomb) / 1024):d}kb")
+        self.logger.info(f"deflate bomb created:{int(len(bomb) / 1024):d} kb")
 
 
 #
@@ -927,7 +929,8 @@ def run_from_config_dict(config):
         v["pattern"] = v["pattern"].casefold()
         logging.info("tarpitd is serving {} ({})".format(v["pattern"], k))
         logging.debug(f"{v}")
-        tarpit_conf = {"rate_limit": v.get("rate_limit"), "name": k}
+        tarpit_conf = {"name": k} | v
+        tarpit_conf.pop("bind")
         match v["pattern"]:
             case "endlessh":
                 pit = EndlessBannerTarpit(**tarpit_conf)
