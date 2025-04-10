@@ -34,7 +34,7 @@ Every item in this list should contain `host` and `port` value, see example belo
 
 #### `max_clients=` (int)
 
-* Max clients the server will handle. It's calculated per bind port.
+Max clients the server will handle. It's calculated per bind port.
 
 ## `[client_trace]` Table
 

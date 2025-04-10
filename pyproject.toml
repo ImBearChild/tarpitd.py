@@ -40,6 +40,16 @@ requires = ["hatch-mkdocs"]
 [tool.hatch.env.collectors.mkdocs.docs]
 path = "mkdocs.yml"
 
+[tool.hatch.envs.devtool]
+dependencies = [
+  "pytype"
+]
+[tool.hatch.envs.devtool.scripts]
+type = "pytype ./src/tarpitd.py"
+
+[[tool.hatch.envs.devtool.matrix]]
+python = ["3.11"]
+
 [tool.hatch.envs.hatch-test]
 default-args = ["src"]
 
