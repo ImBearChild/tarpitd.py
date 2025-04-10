@@ -21,7 +21,7 @@ In the context of tarpitd.py, a "pattern" refers to a specific response behavior
 
 - **HTTP Endless Header:** To combat a malicious HTTP client, tarpitd.py might maintain a connection by slowly transmitting an endless HTTP header. This response keeps the client effectively trapped. (`http_endless_header`)
 - **HTML Bomb:** Alternatively, tarpitd.py can be configured to send a malicious HTML payload that overloads the client's HTML parser, further exhausting its resources. (`http_deflate_html_bomb`)
-- **SSH Transport Hold:** In order to fight against brute-force attackers, tarpitd.py will perform SSH handshake slowly, and send useless message to keep connection open. (`ssh_trans_hold`)
+- **SSH Transport Hold:** In order to fight against brute-force attackers, tarpitd.py will perform SSH handshake slowly, and send harmless message to keep connection open. (`ssh_trans_hold`)
 
 Since different response patterns yield different effects—and clients may react in varied ways—tarpitd.py supports multiple tarpit strategies even for a single protocol.
 
@@ -33,6 +33,6 @@ To put it in perspective:
 
 - A typical HTTP server like Apache or Caddy might require hundreds of megabytes—or even gigabytes—of memory depending on the workload. And it will consume much CPU time to prepare a response.
 - In contrast, tarpitd.py may require as little as 12 MB of RAM to serve something as resource-intensive as an HTML bomb.
-With this bomb pre-generated, the only thing needs to do is sending the response. 
+With this bomb pre-generated, the only thing needs to do is sending the response. (Sadly, it's still larger than OpenSSHd. Python will take serval MBs, even for printing a "hello world")
 
 In many cases, a tarpit not only conserves resources on the defending side but also imposes greater computational and time costs on the attacker. For example, if the attacker attempts to parse the malicious HTML bomb, they may expend significantly more time and resources than the defender did to generate it. Likewise, if an attacker is solely interested in receiving HTTP headers, the defender’s effort to generate a tarpit response may effectively waste the attacker’s time.

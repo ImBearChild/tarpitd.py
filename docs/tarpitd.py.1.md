@@ -30,6 +30,12 @@ Set data transfer rate limit.
 A positive value limits the transfer speed to RATE *bytes* per second.
 A negative value causes the program to send one byte every |RATE| seconds (effectively 1/|RATE| *bytes* per second).
 
+#### `-t, --trace-client [FILE]`
+
+Log client access to FILE. 
+
+The output is jsonl format. Will log to stdout if FILE is left blank.
+
 #### `--manual MANUAL`
 
 Display the built-in manual page. By default, tarpitd.py will open `tarpitd.py.1`.
@@ -86,9 +92,11 @@ Note: The implementation advertises itself as OpenSSH 8.9 on Ubuntu and replays 
 
 #### tls_endless_hello_request
 
-Tested with: openssl (cli)
+Tested with: openssl (cli), curl (with openssl)
 
-Sends an endless series of HelloRequest messages to the client. According to IETF RFC 5246 (the TLS 1.2 specification), clients should ignore extra HelloRequest messages during the negotiation phase, effectively keeping the connection open. 
+Sends an endless series of HelloRequest messages to the client. According to IETF RFC 5246 (the TLS 1.2 specification), clients should ignore extra HelloRequest messages during the negotiation phase, effectively keeping the connection open. It will affect all client use OpenSSL, including curl. 
+
+Firefox will report timeout after 10 seconds. GNU TLS (and Wget using it) will disconnect immediately, complaining about handshake failure.
 
 ### MISC
 

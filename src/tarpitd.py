@@ -45,6 +45,12 @@ A positive value limits the transfer speed to RATE *bytes* per second. A
 negative value causes the program to send one byte every |RATE| seconds
 (effectively 1/|RATE| *bytes* per second).
 
+#### `-t, --trace-client [FILE]`
+
+Log client access to FILE.
+
+The output is jsonl format. Will log to stdout if FILE is left blank.
+
 #### `--manual MANUAL`
 
 Display the built-in manual page. By default, tarpitd.py will open
@@ -122,12 +128,15 @@ this behavior.
 
 #### tls_endless_hello_request
 
-Tested with: openssl (cli)
+Tested with: openssl (cli), curl (with openssl)
 
 Sends an endless series of HelloRequest messages to the client. According to
 IETF RFC 5246 (the TLS 1.2 specification), clients should ignore extra
 HelloRequest messages during the negotiation phase, effectively keeping the
-connection open.
+connection open. It will affect all client use OpenSSL, including curl.
+
+Firefox will report timeout after 10 seconds. GNU TLS (and Wget using it) will
+disconnect immediately, complaining about handshake failure.
 
 ### MISC
 
@@ -193,38 +202,76 @@ tarpitd.conf - configuration file of tarpitd
 
 It is a toml format file.
 
-## `[tarpits.<name>]` OBJECT
+## `[tarpits.<name>]` Table
 
-`<name>`
+#### `<name>`
 
-* Name of this tarpit.
-  For reference in log output. Have no effect on behavior.
+Name of this tarpit.
 
-`pattern=`
+For reference in log output. Have no effect on behavior.
 
-* Specify tarpit pattern.
-  The name of parttern is case-insensitive. For a complete list of supported patterns, see [tarpit.py(1)](./tarpitd.py.1.md).
+#### `pattern=` (str)
 
-`rate_limit=`
+Specify tarpit pattern.
 
-* Set data transfer rate limit.
-  Follow same rule as [tarpit.py(1)](./tarpitd.py.1.md).
+The name of parttern is case-insensitive. For a complete list of supported
+patterns, see [tarpit.py(1)](./tarpitd.py.1.md).
 
-`bind=`
+#### `rate_limit=` (int)
 
-* A list of address and port to listen on.
-  Every item in this list should contain `host` and `port` vaule.
+Set data transfer rate limit.
+
+Follow same rule as [tarpit.py(1)](./tarpitd.py.1.md).
+
+#### `bind=` (table)
+
+A list of address and port to listen on.
+
+Every item in this list should contain `host` and `port` value, see example
+below.
+
+#### `max_clients=` (int)
+
+* Max clients the server will handle. It's calculated per bind port.
+
+## `[client_trace]` Table
+
+#### `enable=` (bool)
+
+Enable logging client access.
+
+#### `stdout=` (bool)
+
+Output client trace log to stdout. (If client_trace is enabled.)
+
+Note: normal runtime log will be print on stderr, this behavior is hard coded.
+Please use service manager or shell to redirect output if you want to save log
+file.
+
+#### `file=` (str)
+
+Path to client_trace log file.
 
 ## Example
 
 ```toml [tarpits] [tarpits.my_cool_ssh_tarpit] pattern = "ssh_trans_hold"
-rate_limit = -2 bind = [{ host = "127.0.0.1", port = "2222" }]
+max_clients = 128 rate_limit = -2 bind = [{ host = "127.0.0.1", port = "2222"
+}]
 
-[tarpits.http_tarpit] pattern = "http_endless_header" rate_limit = 2 bind = [
+[tarpits.http_tarpit] pattern = "http_deflate_html_bomb" rate_limit = 4096
+bind = [
   { host = "127.0.0.1", port = "8080" },
   { host = "::1", port = "8080" },
   { host = "127.0.0.1", port = "8888" },
-] ```
+]
+
+[tarpits.tls_tarpit] pattern = "tls_endless_hello_request" rate_limit = 1 bind
+= [
+  { host = "127.0.0.1", port = "8443" },
+  { host = "127.0.0.1", port = "6697" },
+]
+
+[client_trace] enable = true file = "./client_trace.log" stdout = true ```
 
 ## AUTHOR
 
