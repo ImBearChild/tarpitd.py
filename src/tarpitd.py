@@ -301,7 +301,7 @@ import sys
 import json
 import dataclasses
 import time
-# import typing
+import typing
 
 # module for cli use only will be import when needed
 
@@ -375,6 +375,8 @@ class BaseTarpit:
     This class should not be used directly.
     """
 
+    PATTERN_NAME: str = "internal_base_tarpit"
+
     @dataclasses.dataclass
     class ClientLogConnectionInfo:
         remote_addr: str = ""
@@ -382,12 +384,27 @@ class BaseTarpit:
         local_addr: str = ""
         local_port: int = 0
 
-    @property
-    def _DEFAULT_CONFIG(self):
-        """
-        Derived classes MAY overriding this in case they want to override default settings
-        """
-        return {"client_trace": False, "max_clients": 64, "rate_limit": -1}
+    # Todo
+    @dataclasses.dataclass
+    class ClientExamineResult:
+        expected: bool = False
+        examined_data: bytes = b""
+
+    @dataclasses.dataclass
+    class RuntimeConfig:
+        name: str = "fixme:no_name"
+        # name_pattern : str = "fixme:no_pattern_name"
+        # TODO: make pattern name in class
+        max_clients: int = 64
+        rate_limit: int = 1
+        client_trace: bool = False
+
+        def update_from_dict(self, config_data: dict):
+            for key, value in config_data.items():
+                if hasattr(self, key):
+                    setattr(self, key, value)
+
+        pass
 
     def _setup(self):
         """
@@ -398,14 +415,16 @@ class BaseTarpit:
         """
         return
 
-    def log_client(self, event, conn_info: ClientLogConnectionInfo, comment=None):
+    def log_connection_info(
+        self, event, conn_info: ClientLogConnectionInfo, comment=None
+    ):
         self.client_trace_logger.info(
             json.dumps(
                 {
                     "time": time.time(),
                     "event": event,
-                    "name": self._config["name"],
-                    "pattern": self._config["pattern"],
+                    "name": self._config.name,
+                    "pattern": self.PATTERN_NAME,
                     "conn_info": dataclasses.asdict(conn_info),
                     "comment": comment,
                 }
@@ -415,6 +434,14 @@ class BaseTarpit:
     async def _real_handler(self, reader, writer: TarpitWriter):
         """
         Callback for providing service
+
+        Classes that inherit this Class SHOULD overload this method.
+        """
+        raise NotImplementedError
+
+    async def _real_client_examine(self, reader: asyncio.StreamReader):
+        """
+        Callback for checking client
 
         Classes that inherit this Class SHOULD overload this method.
         """
@@ -437,12 +464,13 @@ class BaseTarpit:
                         peername = writer.get_extra_info("peername")
                         conn_info.remote_addr = peername[0]
                         conn_info.remote_port = peername[1]
-                        self.log_client(
+                        self.log_connection_info(
                             "open",
                             conn_info,
                         )
+                        # result = await self._real_client_examine(reader=reader)
                         tarpit_writer = TarpitWriter(
-                            self._config["rate_limit"], writer=writer
+                            self._config.rate_limit, writer=writer
                         )
                         await real_handler(reader, tarpit_writer)
                     except (  # Log client
@@ -450,11 +478,11 @@ class BaseTarpit:
                         ConnectionAbortedError,
                         ConnectionResetError,
                     ) as e:
-                        self.log_client(
+                        self.log_connection_info(
                             "conn_error", conn_info, comment={"err": str(e)}
                         )
                     finally:
-                        self.log_client("close", conn_info)
+                        self.log_connection_info("close", conn_info)
                 except Exception as e:
                     self.logger.exception(e)
 
@@ -488,37 +516,21 @@ class BaseTarpit:
         **options can be used to pass argument
         """
         self.logger = logging.getLogger(__name__)
-        self._config: dict = {}
+        self._config: self.RuntimeConfig = self.RuntimeConfig()  # type: ignore
 
-        # Merge default config with method resolution order
-        mro = self.__class__.__mro__
-        for parent in reversed(mro):
-            if parent is object:
-                continue
-            if t := getattr(parent, "_DEFAULT_CONFIG", None):
-                self.logger.debug(
-                    "merge default options from {}".format(parent.__name__)
-                )
-                self._config |= t.fget(self)
-
-            # print("options: {}".format(options))
-
-        # Remove None item from config
-        for k, v in config.copy().items():
-            if v is None:
-                config.pop(k)
-
-        self._config |= config
-        self.logger.info("server config: {}".format(self._config), self._config)
-        self.sem = asyncio.Semaphore(self._config["max_clients"])
-        if self._config["client_trace"]:
+        self._config.update_from_dict(config)
+        self.logger.info(
+            "server config: {}".format(self._config), dataclasses.asdict(self._config)
+        )
+        self.sem = asyncio.Semaphore(self._config.max_clients)
+        if self._config.client_trace:
             self.client_trace_logger = logging.getLogger(__name__ + ".client_trace")
         else:
 
             def _log_void(*args, **kwargs):
                 pass
 
-            self.log_client = _log_void  # type: ignore
+            self.log_connection_info = _log_void  # type: ignore
         self._setup()
 
 
@@ -642,9 +654,6 @@ class HttpConnection:
 
 
 class HttpTarpit(BaseTarpit):
-    HTTP_STATUS_LINE_200 = (
-        b"HTTP/1.1 200 OK\r\nServer: Apache/2.4.9\r\nX-Powered-By: PHP/5.1.2-1+b1\r\n"
-    )
 
     async def _http_handler(self, connection: HttpConnection):
         pass
@@ -677,16 +686,11 @@ class HttpEndlessHeaderTarpit(HttpTarpit):
 
 
 class HttpDeflateTarpit(HttpTarpit):
-    @property
-    def _DEFAULT_CONFIG(self):
-        """
-        Derived classes MAY overriding this in case they want to override default settings
-        """
-        return {
-            "rate_limit": 16,
-            "compression_type": "gzip",
-            # use gzip by default for better compatibility
-        }
+    @dataclasses.dataclass
+    class RuntimeConfig(HttpTarpit.RuntimeConfig):
+        rate_limit = 16
+        compression_type = "gzip"
+        pass
 
     async def _http_handler(self, connection: HttpConnection):
         await connection.send_status_line(200)
@@ -700,7 +704,7 @@ class HttpDeflateTarpit(HttpTarpit):
 
     def _setup(self):
         self._deflate_content = b""
-        self.compression_type = self._config["compression_type"]
+        self.compression_type = self._config.compression_type
         match self.compression_type:
             case "gzip":
                 compressobj = zlib.compressobj(level=9, wbits=31)
@@ -712,18 +716,12 @@ class HttpDeflateTarpit(HttpTarpit):
 
 
 class HttpDeflateSizeBombTarpit(HttpDeflateTarpit):
-    @property
-    def _DEFAULT_CONFIG(self):
-        """
-        Derived classes MAY overriding this in case they want to override default settings
-        """
-        return {
-            "rate_limit": 16,
-            "compression_type": "deflate",
-            # Don't use gzip, because gzip container contains uncompressed length
-            # zlib stream have no uncompressed length, force client to decompress it
-            # And they are SAME encodings, just difference in container format
-        }
+    
+    @dataclasses.dataclass
+    class RuntimeConfig(HttpTarpit.RuntimeConfig):
+        rate_limit = 16
+        compression_type = "deflate"
+        pass
 
     def _make_deflate(self, compressobj):
         t = compressobj
@@ -789,15 +787,15 @@ class SshTarpit(BaseTarpit):
         packet = bytearray()
         total_length = 4 + 1 + len(payload)
         padding = 16 - (total_length % 8)
-        packet += (total_length - 4 + padding).to_bytes(4)
-        packet += padding.to_bytes(1)
+        packet += (total_length - 4 + padding).to_bytes(4, "big")
+        packet += padding.to_bytes(1, "big")
         packet += payload
         packet += bytes(padding)
         return packet
 
     @classmethod
     def make_ssh_msg(cls, type: int, data):
-        msg = bytearray(type.to_bytes())
+        msg = bytearray(type.to_bytes(1, "big"))
         msg += data
         return msg
 
@@ -985,13 +983,15 @@ def run_server(server):
 def run_from_cli(args):
     config = {"tarpits": {}, "client_trace": {}}
     number = 0
-    if args.trace_client is sys.stdout:
+    if args.trace_client.name == "<stdout>":
         config["client_trace"]["enable"] = True
         config["client_trace"]["stdout"] = True
     elif args.trace_client is not None:
         config["client_trace"]["enable"] = True
         config["client_trace"]["stdout"] = False
         config["client_trace"]["file"] = args.trace_client.name
+    else:
+        logging.debug("no client trace config from cli")
     for i in args.serve:
         p = i.casefold().partition(":")
         config["tarpits"][f"cli_{number}"] = {
@@ -1026,7 +1026,7 @@ def run_from_config_dict(config: dict):
                 formatter = logging.Formatter("%(message)s")
                 stream_handler.setFormatter(formatter)
                 ct_logger.addHandler(stream_handler)
-                logging.info("saving client trace to stderr")
+                logging.info("saving client trace to stdout")
         except KeyError:
             logging.debug("client trace output stdout not specified")
             pass
@@ -1136,6 +1136,15 @@ def main_cli():
         const="-",
         type=argparse.FileType("wb"),
     )
+
+    # parser.add_argument(
+    #     "-e",
+    #     "--examine-client",
+    #     help="check the client before sending data",
+    #     default="none",
+    #     choices=["none", "check", "probe"],
+    #     # check is short and simple, probe is longer
+    # )
 
     # TODO: IPv6 support of cli ( conf is supported )
     parser.add_argument(
