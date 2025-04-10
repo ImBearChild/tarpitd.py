@@ -251,7 +251,10 @@ import enum
 import zlib
 import http
 import sys
-#import typing
+import json
+import dataclasses
+import time
+# import typing
 
 # module for cli use only will be import when needed
 
@@ -260,6 +263,7 @@ class TarpitWriter:
     """
     Wraps a asyncio.StreamWriter, adding speed limit on it.
     """
+
     async def write_and_drain(self, data: bytes):
         raise NotImplementedError
 
@@ -306,7 +310,7 @@ class TarpitWriter:
         else:
             write_inner = self._write_with_speedlimit
 
-        self.write_and_drain = write_inner # type: ignore
+        self.write_and_drain = write_inner  # type: ignore
         # Monkey patching
 
     def __init__(self, rate, writer: asyncio.StreamWriter) -> None:
@@ -324,12 +328,19 @@ class BaseTarpit:
     This class should not be used directly.
     """
 
+    @dataclasses.dataclass
+    class ClientLogConnectionInfo:
+        remote_addr: str = ""
+        remote_port: int = 0
+        local_addr: str = ""
+        local_port: int = 0
+
     @property
     def _DEFAULT_CONFIG(self):
         """
         Derived classes MAY overriding this in case they want to override default settings
         """
-        return {"client_trace": True, "max_clients": 64, "rate_limit": -1}
+        return {"client_trace": False, "max_clients": 64, "rate_limit": -1}
 
     def _setup(self):
         """
@@ -340,10 +351,19 @@ class BaseTarpit:
         """
         return
 
-    def log_client(self, event, source, destination, comment=None):
-        if not comment:
-            comment = ""
-        self.logger.info(f"client_trace:[ {source} > {destination} ]:{event}:{comment}")
+    def log_client(self, event, conn_info: ClientLogConnectionInfo, comment=None):
+        self.client_trace_logger.info(
+            json.dumps(
+                {
+                    "time": time.time(),
+                    "event": event,
+                    "name": self._config["name"],
+                    "pattern": self._config["pattern"],
+                    "conn_info": dataclasses.asdict(conn_info),
+                    "comment": comment,
+                }
+            )
+        )
 
     async def _real_handler(self, reader, writer: TarpitWriter):
         """
@@ -353,7 +373,11 @@ class BaseTarpit:
         """
         raise NotImplementedError
 
-    def wrap_handler(self, local_address_port, real_handler: types.FunctionType):
+    def wrap_handler(
+        self,
+        real_handler: types.FunctionType,
+        conn_info: ClientLogConnectionInfo,
+    ):
         """
         This closure is used to pass listening address and port to
         handler running in asyncio
@@ -364,10 +388,11 @@ class BaseTarpit:
                 try:
                     try:
                         peername = writer.get_extra_info("peername")
+                        conn_info.remote_addr = peername[0]
+                        conn_info.remote_port = peername[1]
                         self.log_client(
                             "open",
-                            f"{peername[0]}:{peername[1]}",
-                            f"{local_address_port}",
+                            conn_info,
                         )
                         tarpit_writer = TarpitWriter(
                             self._config["rate_limit"], writer=writer
@@ -379,17 +404,10 @@ class BaseTarpit:
                         ConnectionResetError,
                     ) as e:
                         self.log_client(
-                            "conn_error",
-                            f"{peername[0]}:{peername[1]}",
-                            f"{local_address_port}",
-                            f"{e}",
+                            "conn_error", conn_info, comment={"err": str(e)}
                         )
                     finally:
-                        self.log_client(
-                            "close",
-                            f"{peername[0]}:{peername[1]}",
-                            f"{local_address_port}",
-                        )
+                        self.log_client("close", conn_info)
                 except Exception as e:
                     self.logger.exception(e)
 
@@ -406,7 +424,14 @@ class BaseTarpit:
         Server.serve_forever() to make the server to start accepting connections.
         """
         server = await asyncio.start_server(
-            self.wrap_handler(f"{host}:{port}", self._real_handler), host, port
+            self.wrap_handler(
+                real_handler=self._real_handler,
+                conn_info=self.ClientLogConnectionInfo(
+                    local_addr=host, local_port=port
+                ),
+            ),
+            host,
+            port,
         )
         return server
 
@@ -416,7 +441,7 @@ class BaseTarpit:
         **options can be used to pass argument
         """
         self.logger = logging.getLogger(__name__)
-        self._config:dict = {}
+        self._config: dict = {}
 
         # Merge default config with method resolution order
         mro = self.__class__.__mro__
@@ -439,8 +464,14 @@ class BaseTarpit:
         self._config |= config
         self.logger.info("server config: {}".format(self._config), self._config)
         self.sem = asyncio.Semaphore(self._config["max_clients"])
-        if not self._config["client_trace"]:
-            self.log_client = lambda a: None # type: ignore
+        if self._config["client_trace"]:
+            self.client_trace_logger = logging.getLogger(__name__ + ".client_trace")
+        else:
+
+            def _log_void(*args, **kwargs):
+                pass
+
+            self.log_client = _log_void  # type: ignore
         self._setup()
 
 
@@ -491,7 +522,7 @@ class EgshAminoasTarpit(BaseTarpit):
         "Yegm Laminoas": "en:no matter when, my heart yearns for you",
     }
 
-    _aminocese_cache:list = []
+    _aminocese_cache: list = []
 
     # cSpell:enable
     async def _real_handler(self, reader, writer: TarpitWriter):
@@ -521,9 +552,7 @@ class HttpConnection:
         else:
             return bytes(data)
 
-    async def send_status_line(
-        self, code: int, version: bytes = b"HTTP/1.1"
-    ):
+    async def send_status_line(self, code: int, version: bytes = b"HTTP/1.1"):
         status = http.HTTPStatus(code)
         await self.writer.write_and_drain(
             b"%s %d %s\r\n" % (version, status, bytes(status.phrase, "ASCII"))
@@ -672,7 +701,7 @@ class HttpDeflateHtmlBombTarpit(HttpDeflateTarpit):
         # To successfully make Firefox and Chrome stuck, only zeroes is not enough
         # Chromium needs 2.1 GB of memory during displaying this page, and SIGSEGV finally.
         bomb.extend(t.compress(b"<!DOCTYPE html><html><body>"))
-        bomb.extend(t.compress(b"<div>COOL</dd>"*102400))
+        bomb.extend(t.compress(b"<div>COOL</dd>" * 102400))
         bomb.extend(t.compress(b"<div>SUPER</a><em>HOT</em></span>" * 102400))
         bomb.extend(
             t.compress(
@@ -791,18 +820,15 @@ class SshTransHoldTarpit(SshTarpit):
         )
 
     async def _real_handler(self, reader, writer: TarpitWriter):
-        
-        #later_rate = writer.rate
-        #if writer.rate < 128:
-            # Change to a faster rate to send the KEX handshake
-            #writer.change_rate_limit(128)
+        # later_rate = writer.rate
+        # if writer.rate < 128:
+        # Change to a faster rate to send the KEX handshake
+        # writer.change_rate_limit(128)
 
         # Send identifier
         # RFC 4253:
         # Key exchange will begin immediately after sending this identifier.
-        await writer.write_and_drain(
-            self.SSH_VERSION_STRING
-        )
+        await writer.write_and_drain(self.SSH_VERSION_STRING)
         # Send a hard-coded key-exchange message
         payload = self.OPENSSH_KEX
         packet = self.make_ssh_packet(payload)
@@ -823,6 +849,7 @@ class SshTransHoldTarpit(SshTarpit):
             await writer.write_and_drain(packet)
 
     pass
+
 
 class TlsTarpit(BaseTarpit):
     PROTOCOL_VERSION_MAGIC = b"\x03\x03"  # TLS 1.2, also apply to 1.3
@@ -860,19 +887,19 @@ class TlsTarpit(BaseTarpit):
 
 class TlsHelloRequestTarpit(TlsTarpit):
     # RFC 5246:
-    # 
+    #
     # The HelloRequest message MAY be sent by the server at any time.
     #
     # HelloRequest is a simple notification that the client should begin
     # the negotiation process anew.  In response, the client should send
-    # a ClientHello message when convenient. 
-    # 
+    # a ClientHello message when convenient.
+    #
     # Servers SHOULD NOT send a
     # HelloRequest immediately upon the client's initial connection.  It
     # is the client's job to send a ClientHello at that time.
     #
     # This message will be ignored by the client if the client is
-    # currently negotiating a session. 
+    # currently negotiating a session.
     @classmethod
     def make_hello_request_record(cls) -> bytes:
         h = cls.make_handshake_frag(cls.TlsHandshakeType.HELLO_REQUEST, b"")
@@ -909,8 +936,15 @@ def run_server(server):
 
 
 def run_from_cli(args):
-    config = {"tarpits": {}}
+    config = {"tarpits": {}, "client_trace": {}}
     number = 0
+    if args.trace_client is sys.stdout:
+        config["client_trace"]["enable"] = True
+        config["client_trace"]["stdout"] = True
+    elif args.trace_client is not None:
+        config["client_trace"]["enable"] = True
+        config["client_trace"]["stdout"] = False
+        config["client_trace"]["file"] = args.trace_client.name
     for i in args.serve:
         p = i.casefold().partition(":")
         config["tarpits"][f"cli_{number}"] = {
@@ -922,35 +956,78 @@ def run_from_cli(args):
     run_from_config_dict(config)
 
 
-def run_from_config_dict(config):
+def run_from_config_dict(config: dict):
     server = []
-    for k, v in config["tarpits"].items():
-        pit = None
-        v["pattern"] = v["pattern"].casefold()
-        logging.info("tarpitd is serving {} ({})".format(v["pattern"], k))
-        logging.debug(f"{v}")
-        tarpit_conf = {"name": k} | v
-        tarpit_conf.pop("bind")
-        match v["pattern"]:
+
+    try:
+        ct = config["client_trace"]["enable"]  # global setting
+        ct_logger = logging.getLogger(__name__ + ".client_trace")
+        ct_logger.propagate = False
+        have_ct_config = True
+        try:
+            file_handler = logging.FileHandler(config["client_trace"]["file"])
+            formatter = logging.Formatter("%(message)s")
+            file_handler.setFormatter(formatter)
+            ct_logger.addHandler(file_handler)
+            logging.info("saving client trace to `%s`", config["client_trace"]["file"])
+        except KeyError:
+            logging.debug("client trace output file not specified")
+            pass
+        try:
+            if config["client_trace"]["stdout"] is True:
+                stream_handler = logging.StreamHandler(sys.stdout)
+                formatter = logging.Formatter("%(message)s")
+                stream_handler.setFormatter(formatter)
+                ct_logger.addHandler(stream_handler)
+                logging.info("saving client trace to stderr")
+        except KeyError:
+            logging.debug("client trace output stdout not specified")
+            pass
+
+    except KeyError:
+        logging.debug("client trace config not found, not apply it")
+        have_ct_config = False
+        pass
+
+    for name, tarpit_config in config["tarpits"].items():
+        tarpit_config["pattern"] = tarpit_config["pattern"].casefold()
+        logging.info("tarpitd is serving %s (%s)", tarpit_config["pattern"], name)
+
+        logging.debug("config: %s", tarpit_config)
+
+        if have_ct_config is True:
+            tarpit_config["client_trace"] = True
+
+        real_tarpit_conf = {"name": name} | tarpit_config
+        real_tarpit_conf.pop("bind")  # Remove it since its useless
+
+        try:
+            ct = tarpit_config["client_trace"]  # tarpit setting
+            logging.warning("define client_trace per tarpit is not supported")
+        except KeyError:
+            pass
+
+        pit: BaseTarpit
+        match tarpit_config["pattern"]:
             case "endlessh":
-                pit = EndlessBannerTarpit(**tarpit_conf)
+                pit = EndlessBannerTarpit(**real_tarpit_conf)
             case "egsh_aminoas":
-                pit = EgshAminoasTarpit(**tarpit_conf)
+                pit = EgshAminoasTarpit(**real_tarpit_conf)
             case "http_endless_header":
-                pit = HttpEndlessHeaderTarpit(**tarpit_conf)
+                pit = HttpEndlessHeaderTarpit(**real_tarpit_conf)
             case "http_deflate_size_bomb":
-                pit = HttpDeflateSizeBombTarpit(**tarpit_conf)
+                pit = HttpDeflateSizeBombTarpit(**real_tarpit_conf)
             case "http_deflate_html_bomb":
-                pit = HttpDeflateHtmlBombTarpit(**tarpit_conf)
+                pit = HttpDeflateHtmlBombTarpit(**real_tarpit_conf)
             case "ssh_trans_hold":
-                pit = SshTransHoldTarpit(**tarpit_conf)
+                pit = SshTransHoldTarpit(**real_tarpit_conf)
             case "tls_endless_hello_request":
-                pit = TlsHelloRequestTarpit(**tarpit_conf)
+                pit = TlsHelloRequestTarpit(**real_tarpit_conf)
             case other:
                 print(f"service {other} is not exist!")
                 exit()
-        logging.info("server bind: {}".format(v["bind"]))
-        for i in v["bind"]:
+        logging.info("server bind: {}".format(tarpit_config["bind"]))
+        for i in tarpit_config["bind"]:
             server.append(pit.create_server(host=i["host"], port=i["port"]))
 
     run_server(server)
@@ -1001,6 +1078,16 @@ def main_cli():
         help="specify config file",
         metavar="FILE",
         type=argparse.FileType("rb"),
+    )
+
+    parser.add_argument(
+        "-t",
+        "--trace-client",
+        help="log client access to file",
+        metavar="FILE",
+        nargs="?",
+        const="-",
+        type=argparse.FileType("wb"),
     )
 
     # TODO: IPv6 support of cli ( conf is supported )

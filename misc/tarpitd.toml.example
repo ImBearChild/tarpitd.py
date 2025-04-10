@@ -20,3 +20,8 @@ bind = [
   { host = "127.0.0.1", port = "8443" },
   { host = "127.0.0.1", port = "6697" },
 ]
+
+[client_trace]
+enable   = true
+file = "./client_trace.log"
+stdout   = true
