@@ -46,7 +46,7 @@ class TestEchoTarpit(TestTarpit):
         self.addAsyncCleanup(self.on_cleanup)
         pass
 
-class TestHttpTarpit(TestTarpit):
+class TestHttpOkTarpit(TestTarpit):
     def create_tarpit_obj(self):
         t = tarpitd.HttpOkTarpit(rate_limit=0)
         return t
@@ -55,6 +55,49 @@ class TestHttpTarpit(TestTarpit):
         reader , writer = await asyncio.open_connection("127.0.0.2", self.port)
         line = await reader.readline()
         self.assertTrue(line.startswith(b"HTTP"))
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+        self.addAsyncCleanup(self.on_cleanup)
+
+class TestHttpTarpit(TestTarpit):
+    def create_tarpit_obj(self):
+        t = tarpitd.HttpEndlessHeaderTarpit(rate_limit=0)
+        return t
+
+    async def test_response(self):
+        reader , writer = await asyncio.open_connection("127.0.0.2", self.port)
+        line = await reader.readline()
+        self.assertTrue(line.startswith(b"HTTP"))
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+        self.addAsyncCleanup(self.on_cleanup)
+
+class TestTlsTarpit(TestTarpit):
+    def create_tarpit_obj(self):
+        t = tarpitd.TlsHelloRequestTarpit(rate_limit=0)
+        return t
+
+    async def test_response(self):
+        reader , writer = await asyncio.open_connection("127.0.0.2", self.port)
+        line = await reader.read(8)
+        self.assertTrue(line.startswith(b"\x16\x03\x03"))
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+        self.addAsyncCleanup(self.on_cleanup)
+
+
+class TestSshTarpit(TestTarpit):
+    def create_tarpit_obj(self):
+        t = tarpitd.SshTransHoldTarpit(rate_limit=0)
+        return t
+
+    async def test_response(self):
+        reader , writer = await asyncio.open_connection("127.0.0.2", self.port)
+        line = await reader.read(4)
+        self.assertTrue(line.startswith(b"SSH"))
         await writer.drain()
         writer.close()
         await writer.wait_closed()
