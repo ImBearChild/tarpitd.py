@@ -189,6 +189,20 @@ class TestTlsTarpit(TestTarpit):
         await writer.wait_closed()
         self.addAsyncCleanup(self.on_cleanup)
 
+class TestTlsSlowHelloTarpit(TestTarpit):
+    def create_tarpit_obj(self):
+        t = tarpitd.TlsSlowHelloTarpit(rate_limit=0)
+        return t
+
+    async def test_response(self):
+        reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
+        line = await reader.read(8)
+        self.assertTrue(line.startswith(b"\x16\x03\x03\x3e\x63"))
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+        self.addAsyncCleanup(self.on_cleanup)
+
 
 class TestSshTarpit(TestTarpit):
     def create_tarpit_obj(self):

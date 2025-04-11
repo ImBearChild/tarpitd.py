@@ -839,7 +839,7 @@ class HttpPreGeneratedTarpit(HttpTarpit):
 
 class HttpBadHtmlTarpit(HttpPreGeneratedTarpit):
     PATTERN_NAME = "http_bad_site"
-    _BAD_SCRIPT= b"""
+    _BAD_SCRIPT = b"""
     for (;;) {
     console.log("DUCK");}
     """
@@ -849,7 +849,7 @@ class HttpBadHtmlTarpit(HttpPreGeneratedTarpit):
 
         data.extend(
             b"<!DOCTYPE html><html><body><script src='/%x.js'></script><script>%s</script>"
-            % (random.randint(0, 2**32),self._BAD_SCRIPT)
+            % (random.randint(0, 2**32), self._BAD_SCRIPT)
         )
 
         for i in range(300):
@@ -1089,6 +1089,15 @@ class SshTransHoldTarpit(SshTarpit):
 class TlsTarpit(BaseTarpit):
     PROTOCOL_VERSION_MAGIC = b"\x03\x03"  # TLS 1.2, also apply to 1.3
 
+    async def _client_examine(
+        self, reader: asyncio.StreamReader
+    ) -> BaseTarpit.ClientExamineResult:
+        data = await reader.readexactly(4)
+        if data.startswith(b"\x16\x03\x03"):
+            return self.ClientExamineResult(expected=True, examined_data=data)
+
+        return self.ClientExamineResult(expected=False, examined_data=data)
+
     # See: TLS 1.2 RFC ttps://www.rfc-editor.org/rfc/rfc5246#page-15
     class TlsRecordContentType(enum.IntEnum):
         HANDSHAKE = 22
@@ -1123,15 +1132,6 @@ class TlsTarpit(BaseTarpit):
 class TlsHelloRequestTarpit(TlsTarpit):
     PATTERN_NAME: str = "tls_endless_hello_request"
 
-    async def _client_examine(
-        self, reader: asyncio.StreamReader
-    ) -> BaseTarpit.ClientExamineResult:
-        data = await reader.readexactly(4)
-        if data.startswith(b"\x16\x03\x03"):
-            return self.ClientExamineResult(expected=True, examined_data=data)
-
-        return self.ClientExamineResult(expected=False, examined_data=data)
-
     # RFC 5246:
     #
     # The HelloRequest message MAY be sent by the server at any time.
@@ -1149,6 +1149,70 @@ class TlsHelloRequestTarpit(TlsTarpit):
     @classmethod
     def make_hello_request_record(cls) -> bytes:
         h = cls.make_handshake_frag(cls.TlsHandshakeType.HELLO_REQUEST, b"")
+        return cls.make_record(cls.TlsRecordContentType.HANDSHAKE, h)
+
+    async def _real_handler(self, reader, writer: BaseTarpit.TarpitWriter):
+        while True:
+            packet = self.make_hello_request_record()
+            await writer.write_and_drain(packet)
+
+    pass
+
+
+class TlsSlowHelloTarpit(TlsTarpit):
+    PATTERN_NAME: str = "tls_slow_hello"
+
+    @classmethod
+    def make_hello_request_record(cls) -> bytes:
+        padding_data_length = 2**14 - 1024
+        session_ticket_data_length = 512
+        session_id_length = 32  # Session ID 长度 (最大32)
+
+        renego_info_ext = b"\xff\x01\x00\x01\x00"  # 5 bytes
+        ec_points_ext = (
+            b"\x00\x0b\x00\x02\x01\x00"  # 6 bytes (type=0x0b, len=2, data=01 00)
+        )
+        ems_ext = b"\x00\x17\x00\x00"  # 4 bytes (type=0x17, len=0)
+
+        ticket_data = b"\x00" * session_ticket_data_length
+        ticket_ext_len = session_ticket_data_length.to_bytes(2, "big")
+        ticket_ext = b"\x00\x23" + ticket_ext_len + ticket_data  # 4 + len
+
+        # Padding Extension (Type 0x0015)
+        padding_data = b"\x00" * padding_data_length
+        padding_ext_len = padding_data_length.to_bytes(2, "big")
+        padding_ext = b"\x00\x15" + padding_ext_len + padding_data  # 4 + len
+
+        extensions_data = (
+            renego_info_ext + ec_points_ext + ems_ext + ticket_ext + padding_ext
+        )
+        extensions_total_len = len(extensions_data).to_bytes(
+            2, "big"
+        )  # 2 bytes for Extensions Length field
+
+        server_version = b"\x03\x03"  # TLS 1.2
+        random_bytes = b"\x00" * 32  # 32 bytes Random
+        session_id_len_byte = bytes([32])
+        session_id_value = (
+            b"\x11" * session_id_length
+        )  # Session ID Value (max 32 bytes)
+        cipher_suite = b"\xc0\x2f"  # TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 (example)
+        compression_method = b"\x00"  # Null compression
+
+        handshake_content = (
+            server_version
+            + random_bytes
+            + session_id_len_byte
+            + session_id_value
+            + cipher_suite
+            + compression_method
+            + extensions_total_len  # The Extensions Length field
+            + extensions_data  # The actual extensions data
+        )
+
+        h = cls.make_handshake_frag(
+            cls.TlsHandshakeType.SERVER_HELLO, handshake_content
+        )
         return cls.make_record(cls.TlsRecordContentType.HANDSHAKE, h)
 
     async def _real_handler(self, reader, writer: BaseTarpit.TarpitWriter):
