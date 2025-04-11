@@ -51,6 +51,13 @@ Log client access to FILE.
 
 The output is jsonl format. Will log to stdout if FILE is left blank.
 
+#### `-e, --examine-client [{check}]`
+
+Examine client before sending response.
+
+Currently implication will check first few bytes in the request, to confirm
+that the client is using corresponding protocol.
+
 #### `--manual MANUAL`
 
 Display the built-in manual page. By default, tarpitd.py will open
@@ -177,6 +184,21 @@ case-insensitive):
     tarpitd.py -s http_deflate_html_bomb:127.0.0.1:8080 \
                   HTTP_ENDLESS_COOKIE:0.0.0.0:8088
 
+## KNOWN ISSUE
+
+### CONNECTION RESET
+
+Client may face connection reset when tarpitd.py send a lot of data and then
+close the connection before client receive all of it.
+
+Root of this problem is not clear, since tarpitd.py will wait until all data
+is write to the socket before closing it. So if a client have not received all
+data, tarpitd.py will not close connection.
+
+A lot means only `http_deflate_size_bomb` with high or no rate limit will face
+this problem. However, because use of rate limit is highly recommend and by
+default, it won't affect our main use case.
+
 ## AUTHOR
 
 Nianqing Yao [imbearchild at outlook.com]
@@ -232,7 +254,7 @@ below.
 
 #### `max_clients=` (int)
 
-* Max clients the server will handle. It's calculated per bind port.
+Max clients the server will handle. It's calculated per bind port.
 
 ## `[client_trace]` Table
 
@@ -365,9 +387,17 @@ class TarpitWriter:
         self.drain = writer.drain
         self.close = writer.close
         self.wait_closed = writer.wait_closed
+        self.write_eof = writer.write_eof
         self.change_rate_limit(rate)
 
     pass
+
+
+class BytesLiteralEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, bytes):
+            return repr(obj)
+        return json.JSONEncoder.default(self, obj)
 
 
 class BaseTarpit:
@@ -375,7 +405,7 @@ class BaseTarpit:
     This class should not be used directly.
     """
 
-    PATTERN_NAME: str = "internal_base_tarpit"
+    PATTERN_NAME: str = "_internal_base_tarpit"
 
     @dataclasses.dataclass
     class ClientLogConnectionInfo:
@@ -395,13 +425,17 @@ class BaseTarpit:
         name: str = "fixme:no_name"
         # name_pattern : str = "fixme:no_pattern_name"
         # TODO: make pattern name in class
-        max_clients: int = 64
+        max_clients: int = 4096
+        # Not real connection count. More than 4096 will be created, but will wait in queue
+        # https://docs.python.org/3/library/socket.html#socket.socket.listen
+        # default backlog is 100
         rate_limit: int = 1
         client_trace: bool = False
+        client_examine: bool = False
 
         def update_from_dict(self, config_data: dict):
             for key, value in config_data.items():
-                if hasattr(self, key):
+                if hasattr(self, key) and value is not None:
                     setattr(self, key, value)
 
         pass
@@ -415,7 +449,7 @@ class BaseTarpit:
         """
         return
 
-    def log_connection_info(
+    def _log_connection_info(
         self, event, conn_info: ClientLogConnectionInfo, comment=None
     ):
         self.client_trace_logger.info(
@@ -427,7 +461,8 @@ class BaseTarpit:
                     "pattern": self.PATTERN_NAME,
                     "conn_info": dataclasses.asdict(conn_info),
                     "comment": comment,
-                }
+                },
+                cls=BytesLiteralEncoder,
             )
         )
 
@@ -436,16 +471,29 @@ class BaseTarpit:
         Callback for providing service
 
         Classes that inherit this Class SHOULD overload this method.
+        This method should close connection when necessary.
         """
         raise NotImplementedError
 
-    async def _real_client_examine(self, reader: asyncio.StreamReader):
+    async def _client_examine(
+        self, reader: asyncio.StreamReader
+    ) -> ClientExamineResult:
         """
         Callback for checking client
 
         Classes that inherit this Class SHOULD overload this method.
         """
         raise NotImplementedError
+
+    async def _client_examine_empty(
+        self, reader: asyncio.StreamReader
+    ) -> ClientExamineResult:
+        """
+        Return ClientExamineResult to pass exam
+
+        Classes that inherit this Class SHOULD NOT verload this method.
+        """
+        return self.ClientExamineResult(expected=True)
 
     def wrap_handler(
         self,
@@ -457,32 +505,48 @@ class BaseTarpit:
         handler running in asyncio
         """
 
-        async def handler(reader, writer: asyncio.StreamWriter):
+        async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
             async with self.sem:
                 try:
                     try:
                         peername = writer.get_extra_info("peername")
                         conn_info.remote_addr = peername[0]
                         conn_info.remote_port = peername[1]
-                        self.log_connection_info(
+                        self._log_connection_info(
                             "open",
                             conn_info,
                         )
-                        # result = await self._real_client_examine(reader=reader)
-                        tarpit_writer = TarpitWriter(
-                            self._config.rate_limit, writer=writer
+                        result: BaseTarpit.ClientExamineResult = (
+                            await self._client_examine(reader=reader)
                         )
-                        await real_handler(reader, tarpit_writer)
+                        if result is None or result.expected:
+                            if result is not None:
+                                self._log_connection_info(
+                                    "examine",
+                                    conn_info,
+                                    comment=dataclasses.asdict(result),
+                                )
+                            tarpit_writer = TarpitWriter(
+                                self._config.rate_limit, writer=writer
+                            )
+                            await real_handler(reader, tarpit_writer)
+                        else:
+                            self._log_connection_info(
+                                "examine", conn_info, comment=dataclasses.asdict(result)
+                            )
+                            writer.close()
+                            await asyncio.sleep(random.randrange(16, 32))
+                            await writer.wait_closed()
                     except (  # Log client
                         BrokenPipeError,
                         ConnectionAbortedError,
                         ConnectionResetError,
                     ) as e:
-                        self.log_connection_info(
+                        self._log_connection_info(
                             "conn_error", conn_info, comment={"err": str(e)}
                         )
                     finally:
-                        self.log_connection_info("close", conn_info)
+                        self._log_connection_info("close", conn_info)
                 except Exception as e:
                     self.logger.exception(e)
 
@@ -505,8 +569,13 @@ class BaseTarpit:
                     local_addr=host, local_port=port
                 ),
             ),
-            host,
-            port,
+            host=host,
+            port=port,
+            # limit=64,
+            # the buffer size of Stream reader, 64 byte
+            # by default will be 64 kb, too much since we do not read
+            # and the os kernel has it own buffer
+            # backlog=100,
         )
         return server
 
@@ -516,7 +585,7 @@ class BaseTarpit:
         **options can be used to pass argument
         """
         self.logger = logging.getLogger(__name__)
-        self._config: self.RuntimeConfig = self.RuntimeConfig()  # type: ignore
+        self._config: RuntimeConfig = self.RuntimeConfig()  # type: ignore  # noqa: F821
 
         self._config.update_from_dict(config)
         self.logger.info(
@@ -530,11 +599,20 @@ class BaseTarpit:
             def _log_void(*args, **kwargs):
                 pass
 
-            self.log_connection_info = _log_void  # type: ignore
+            self._log_connection_info = _log_void  # type: ignore
+        if not self._config.client_examine:
+
+            async def _void(*args, **kwargs):
+                pass
+
+            self._client_examine = _void  # type: ignore
         self._setup()
 
 
 class EchoTarpit(BaseTarpit):
+    PATTERN_NAME: str = "_internal_echo"
+    _client_examine = BaseTarpit._client_examine_empty
+
     async def _real_handler(self, reader, writer: TarpitWriter):
         """
         Callback for providing service
@@ -554,6 +632,7 @@ class EchoTarpit(BaseTarpit):
 
 
 class EndlessBannerTarpit(BaseTarpit):
+    PATTERN_NAME: str = "endless_banner"
     # For SSH
 
     # The server MAY send other lines of data before sending the version
@@ -571,6 +650,7 @@ class EndlessBannerTarpit(BaseTarpit):
 
 
 class EgshAminoasTarpit(BaseTarpit):
+    PATTERN_NAME: str = "egsh_aminoas"
     # cSpell:disable
     # These is a joke
     # https://github.com/HanaYabuki/aminoac
@@ -641,6 +721,7 @@ class HttpConnection:
         pass
 
     async def close(self):
+        await self.writer.drain()
         self.writer.close()
         await self.writer.wait_closed()
 
@@ -654,6 +735,17 @@ class HttpConnection:
 
 
 class HttpTarpit(BaseTarpit):
+    async def _client_examine(
+        self, reader: asyncio.StreamReader
+    ) -> BaseTarpit.ClientExamineResult:
+        data = await reader.readexactly(4)
+        http_methods = [b"GET ", b"POST", b"HEAD"]
+
+        for method in http_methods:
+            if data.startswith(method):
+                return self.ClientExamineResult(expected=True, examined_data=data)
+
+        return self.ClientExamineResult(expected=False, examined_data=data)
 
     async def _http_handler(self, connection: HttpConnection):
         pass
@@ -667,12 +759,17 @@ class HttpTarpit(BaseTarpit):
 
 
 class HttpOkTarpit(HttpTarpit):
+    PATTERN_NAME: str = "_internal_http_ok"
+
     async def _http_handler(self, connection):
         await connection.send_status_line(200)
+        await connection.send_content(b"DUCK!")
         await connection.close()
 
 
 class HttpEndlessHeaderTarpit(HttpTarpit):
+    PATTERN_NAME: str = "http_endless_header"
+
     async def _http_handler(self, connection):
         await connection.send_status_line(200)
         while True:
@@ -697,6 +794,7 @@ class HttpDeflateTarpit(HttpTarpit):
         await connection.send_content(
             self._deflate_content, encoding=bytes(self.compression_type, "ASCII")
         )
+        await connection.close()  # close it to release (or should we keep it open)
         return
 
     def _make_deflate(self, compressobj):
@@ -716,7 +814,8 @@ class HttpDeflateTarpit(HttpTarpit):
 
 
 class HttpDeflateSizeBombTarpit(HttpDeflateTarpit):
-    
+    PATTERN_NAME: str = "http_deflate_size_bomb"
+
     @dataclasses.dataclass
     class RuntimeConfig(HttpTarpit.RuntimeConfig):
         rate_limit = 16
@@ -739,6 +838,8 @@ class HttpDeflateSizeBombTarpit(HttpDeflateTarpit):
 
 
 class HttpDeflateHtmlBombTarpit(HttpDeflateTarpit):
+    PATTERN_NAME: str = "http_deflate_html_bomb"
+
     def _make_deflate(self, compressobj):
         self.logger.info("creating bomb...")
         t = compressobj
@@ -769,6 +870,15 @@ class SshTarpit(BaseTarpit):
     SSH_VERSION_STRING = b"SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.3\r\n"
     # pretend to be ubuntu
     # see: https://svn.nmap.org/nmap/nmap-service-probes
+
+    async def _client_examine(
+        self, reader: asyncio.StreamReader
+    ) -> BaseTarpit.ClientExamineResult:
+        data = await reader.readexactly(4)
+        if data.startswith(b"SSH-"):
+            return self.ClientExamineResult(expected=True, examined_data=data)
+
+        return self.ClientExamineResult(expected=False, examined_data=data)
 
     class SshMegNumber(enum.IntEnum):
         """
@@ -805,6 +915,8 @@ class SshTarpit(BaseTarpit):
 
 
 class SshTransHoldTarpit(SshTarpit):
+    PATTERN_NAME: str = "ssh_trans_hold"
+
     @property
     def OPENSSH_KEX(self):
         """
@@ -931,6 +1043,17 @@ class TlsTarpit(BaseTarpit):
 
 
 class TlsHelloRequestTarpit(TlsTarpit):
+    PATTERN_NAME: str = "tls_endless_hello_request"
+
+    async def _client_examine(
+        self, reader: asyncio.StreamReader
+    ) -> BaseTarpit.ClientExamineResult:
+        data = await reader.readexactly(4)
+        if data.startswith(b"\x16\x03\x03"):
+            return self.ClientExamineResult(expected=True, examined_data=data)
+
+        return self.ClientExamineResult(expected=False, examined_data=data)
+
     # RFC 5246:
     #
     # The HelloRequest message MAY be sent by the server at any time.
@@ -983,24 +1106,44 @@ def run_server(server):
 def run_from_cli(args):
     config = {"tarpits": {}, "client_trace": {}}
     number = 0
-    if args.trace_client.name == "<stdout>":
+    if args.trace_client and args.trace_client.name == "<stdout>":
         config["client_trace"]["enable"] = True
         config["client_trace"]["stdout"] = True
-    elif args.trace_client is not None:
+    elif args.trace_client:
         config["client_trace"]["enable"] = True
         config["client_trace"]["stdout"] = False
         config["client_trace"]["file"] = args.trace_client.name
     else:
         logging.debug("no client trace config from cli")
+
+    if args.examine_client == "check":
+        client_examine = True
+    else:
+        client_examine = False
+
+    if client_examine == "probe":
+        raise NotImplementedError
+
     for i in args.serve:
         p = i.casefold().partition(":")
         config["tarpits"][f"cli_{number}"] = {
             "pattern": p[0],
             "rate_limit": args.rate_limit,
             "bind": [{"host": p[2].partition(":")[0], "port": p[2].partition(":")[2]}],
+            "client_examine": client_examine,
         }
         number += 1
     run_from_config_dict(config)
+
+
+def get_all_subclasses(cls):
+    all_subclasses = []
+
+    for subclass in cls.__subclasses__():
+        all_subclasses.append(subclass)
+        all_subclasses.extend(get_all_subclasses(subclass))
+
+    return all_subclasses
 
 
 def run_from_config_dict(config: dict):
@@ -1055,24 +1198,21 @@ def run_from_config_dict(config: dict):
             pass
 
         pit: BaseTarpit
-        match tarpit_config["pattern"]:
-            case "endlessh":
-                pit = EndlessBannerTarpit(**real_tarpit_conf)
-            case "egsh_aminoas":
-                pit = EgshAminoasTarpit(**real_tarpit_conf)
-            case "http_endless_header":
-                pit = HttpEndlessHeaderTarpit(**real_tarpit_conf)
-            case "http_deflate_size_bomb":
-                pit = HttpDeflateSizeBombTarpit(**real_tarpit_conf)
-            case "http_deflate_html_bomb":
-                pit = HttpDeflateHtmlBombTarpit(**real_tarpit_conf)
-            case "ssh_trans_hold":
-                pit = SshTransHoldTarpit(**real_tarpit_conf)
-            case "tls_endless_hello_request":
-                pit = TlsHelloRequestTarpit(**real_tarpit_conf)
-            case other:
-                print(f"service {other} is not exist!")
-                exit()
+
+        tarpit_classes: list[BaseTarpit] = get_all_subclasses(BaseTarpit)
+        available_tarpits: dict[str, BaseTarpit] = {}
+
+        for c in tarpit_classes:
+            if c.PATTERN_NAME != "_internal_base_tarpit":
+                available_tarpits.update({c.PATTERN_NAME: c})
+                logging.debug("discovered tarpit pattern: %s", c.PATTERN_NAME)
+
+        if available_tarpits.get(tarpit_config["pattern"]):
+            pit = available_tarpits.get(tarpit_config["pattern"])(**real_tarpit_conf)  # type: ignore
+        else:
+            print("pattern %s is not exist!", tarpit_config["pattern"])
+            exit()
+
         logging.info("server bind: {}".format(tarpit_config["bind"]))
         for i in tarpit_config["bind"]:
             server.append(pit.create_server(host=i["host"], port=i["port"]))
@@ -1137,14 +1277,15 @@ def main_cli():
         type=argparse.FileType("wb"),
     )
 
-    # parser.add_argument(
-    #     "-e",
-    #     "--examine-client",
-    #     help="check the client before sending data",
-    #     default="none",
-    #     choices=["none", "check", "probe"],
-    #     # check is short and simple, probe is longer
-    # )
+    parser.add_argument(
+        "-e",
+        "--examine-client",
+        help="check the client before sending data",
+        const="check",
+        nargs="?",
+        choices=["check", "probe"],  # TODO: make it
+        # check is short and simple, probe is longer
+    )
 
     # TODO: IPv6 support of cli ( conf is supported )
     parser.add_argument(

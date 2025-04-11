@@ -36,6 +36,13 @@ Log client access to FILE.
 
 The output is jsonl format. Will log to stdout if FILE is left blank.
 
+#### `-e, --examine-client [{check}]`
+
+Examine client before sending response. 
+
+Currently implication will check first few bytes in the request, 
+to confirm that the client is using corresponding protocol.
+
 #### `--manual MANUAL`
 
 Display the built-in manual page. By default, tarpitd.py will open `tarpitd.py.1`.
@@ -131,6 +138,22 @@ Start two different HTTP tarpit services concurrently
 
     tarpitd.py -s http_deflate_html_bomb:127.0.0.1:8080 \
                   HTTP_ENDLESS_COOKIE:0.0.0.0:8088 
+
+## KNOWN ISSUE
+
+### CONNECTION RESET
+
+Client may face connection reset when tarpitd.py send a lot of data
+and then close the connection before client receive all of it.
+
+Root of this problem is not clear, since tarpitd.py will wait until
+all data is write to the socket before closing it. So if a client have not received
+all data, tarpitd.py will not close connection.
+
+A lot means only `http_deflate_size_bomb` with high or no rate limit will
+face this problem. However, because use of rate limit is highly recommend and by default,
+it won't affect our main use case.
+
 
 ## AUTHOR
 
