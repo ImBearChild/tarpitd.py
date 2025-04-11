@@ -116,6 +116,11 @@
               </ul>
             </li>
             
+            <li class="nav-item" data-bs-level="2"><a href="#known-issue" class="nav-link">KNOWN ISSUE</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
             <li class="nav-item" data-bs-level="2"><a href="#author" class="nav-link">AUTHOR</a>
               <ul class="nav flex-column">
               </ul>
@@ -146,6 +151,10 @@ A negative value causes the program to send one byte every |RATE| seconds (effec
 <h4 id="-t-trace-client-file"><code>-t, --trace-client [FILE]</code></h4>
 <p>Log client access to FILE. </p>
 <p>The output is jsonl format. Will log to stdout if FILE is left blank.</p>
+<h4 id="-e-examine-client-check"><code>-e, --examine-client [{check}]</code></h4>
+<p>Examine client before sending response. </p>
+<p>Currently implication will check first few bytes in the request, 
+to confirm that the client is using corresponding protocol.</p>
 <h4 id="-manual-manual"><code>--manual MANUAL</code></h4>
 <p>Display the built-in manual page. By default, tarpitd.py will open <code>tarpitd.py.1</code>.</p>
 <p>Available manual pages include:</p>
@@ -203,6 +212,16 @@ rate limit, at 1030.3:1.</p>
 <pre><code>tarpitd.py -s http_deflate_html_bomb:127.0.0.1:8080 \
               HTTP_ENDLESS_COOKIE:0.0.0.0:8088
 </code></pre>
+<h2 id="known-issue">KNOWN ISSUE</h2>
+<h3 id="connection-reset">CONNECTION RESET</h3>
+<p>Client may face connection reset when tarpitd.py send a lot of data
+and then close the connection before client receive all of it.</p>
+<p>Root of this problem is not clear, since tarpitd.py will wait until
+all data is write to the socket before closing it. So if a client have not received
+all data, tarpitd.py will not close connection.</p>
+<p>A lot means only <code>http_deflate_size_bomb</code> with high or no rate limit will
+face this problem. However, because use of rate limit is highly recommend and by default,
+it won't affect our main use case.</p>
 <h2 id="author">AUTHOR</h2>
 <p>Nianqing Yao [imbearchild at outlook.com]</p>
 <hr />
