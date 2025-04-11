@@ -2,11 +2,6 @@ import unittest
 import asyncio
 import tarpitd
 import time
-import socket
-import random
-
-
-
 
 class TestTarpit(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
@@ -97,6 +92,7 @@ class TestHttpOkTarpit(TestTarpit):
 
     async def test_response(self):
         reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
+        writer.write(b"GET ")
         line = await reader.readline()
         self.assertTrue(line.startswith(b"HTTP"))
         await writer.drain()
@@ -112,6 +108,7 @@ class TestHttpTarpit(TestTarpit):
 
     async def test_response(self):
         reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
+        writer.write(b"GET ")
         line = await reader.readline()
         self.assertTrue(line.startswith(b"HTTP"))
         await writer.drain()
@@ -161,6 +158,7 @@ class TestHttpDeflateSizeBombTarpit(TestTarpit):
 
     async def test_response(self):
         reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
+        writer.write(b"GET ")
         line = await reader.readline()
         self.assertTrue(line.startswith(b"HTTP"))
         await writer.drain()
@@ -182,6 +180,7 @@ class TestTlsTarpit(TestTarpit):
 
     async def test_response(self):
         reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
+        writer.write(b"\x16\x03\x03")
         line = await reader.read(8)
         self.assertTrue(line.startswith(b"\x16\x03\x03"))
         await writer.drain()
@@ -196,6 +195,7 @@ class TestTlsSlowHelloTarpit(TestTarpit):
 
     async def test_response(self):
         reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
+        writer.write(b"\x16\x03\x03")
         line = await reader.read(8)
         self.assertTrue(line.startswith(b"\x16\x03\x03\x3e\x63"))
         await writer.drain()

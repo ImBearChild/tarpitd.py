@@ -1,6 +1,6 @@
 # Tarpitd.py
 
-[中文](./README.zh.md)
+[中文](./README.zh.md) | [Document](https://imbearchild.github.io/tarpitd.py)
 
 Tarpitd.py is a daemon that contains different response pattern, designed to emulate common internet services in a way that can disrupt client activities, potentially slowing them down or causing crashes. 
 

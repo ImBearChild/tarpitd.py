@@ -157,7 +157,7 @@ Clients may face a connection reset when tarpitd.py sends a lot of data and then
 
 The root of this problem is not clear, as tarpitd.py will wait until all data is written to the socket before closing it. Therefore, if a client has not received all the data, tarpitd.py will not close the connection.
 
-“A lot” in this context means that only `http_deflate_size_bomb` with high or no rate limit will face this problem. However, since the use of a rate limit is highly recommended (and enabled by default), it should not affect our main use case.
+“A lot” in this context means that only `http_deflate_size_bomb` with high or no rate limit, and set `max_client` to a relatively low value, will face this problem. However, since the use of a rate limit is highly recommended (and enabled by default), it should not affect our main use case.
 
 ## AUTHOR
 

@@ -7,7 +7,7 @@ from typing import List
 DOC_WRAP = "# ============================================================================="
 DOC_START = "# -----------------------------------------------------------------------------"
 SRC_FILE = Path("./src/tarpitd.py")
-DOCS_FOLDER = Path("./docs")
+DOCS_FOLDER = Path("./docs/manual")
 MANPAGES = ["tarpitd.py.1","tarpitd.conf.5" ]
 WRAP_WIDTH = 78
 
