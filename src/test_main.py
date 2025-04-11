@@ -6,19 +6,6 @@ import socket
 import random
 
 
-async def find_available_port(start_port, end_port, host="127.0.0.2"):
-    while True:
-        port = random.randrange(start=start_port,stop=end_port)
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind((host, port))
-                s.close()
-                #await asyncio.sleep(1)
-                return port
-        except socket.error as e:
-            raise e
-            pass
-    return None
 
 
 class TestTarpit(unittest.IsolatedAsyncioTestCase):
@@ -31,8 +18,9 @@ class TestTarpit(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         print("[TEST] set up test")
         pit = self.create_tarpit_obj()
-        self.port = await find_available_port(50000, 60000)
-        self.server = await pit.create_server("127.0.0.2", self.port)
+        self.port = 0
+        self.server = await pit.create_server("127.0.0.2", 0)
+        self.port = self.server.sockets[0].getsockname()[1]
         async with asyncio.TaskGroup() as tg:
             tg.create_task(self.server.start_serving())
         print("[TEST] set up done")
