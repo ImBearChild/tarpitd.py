@@ -1,7 +1,5 @@
 # About
 
-
-
 ## What Is a Tarpit?
 
 A tarpit, as defined by Wikipedia, is a service on a computer system (typically a server) designed to intentionally delay incoming connections. This concept is analogous to an actual tar pit in nature, where animals become stuck and slowly sink beneath the surface of a swamp. Similarly, an internet tarpit slows down client connections, impeding rapid or automated access.
@@ -39,7 +37,7 @@ In many cases, a tarpit not only conserves resources on the defending side but a
 
 ## Is it secure?
 
-Almost yes. tarpitd.py will not read from client, so there is nothing to crack, except a few bytes to make sure the client is running corresponding protocol. Because send an HTTP response to SSH client is pointless. This feature can be turned off as desired.
+Almost yes. tarpitd.py will not read from client, except a few bytes to make sure the client is running corresponding protocol, so there is nothing to crack. tarpit.py checks client by default, because send an HTTP response to SSH client is pointless, and it helps when facing null probing. This feature can be turned off as desired.
 
 ## Why not use original endlessh?
 

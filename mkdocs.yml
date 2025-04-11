@@ -1,4 +1,7 @@
-site_name: Tarpitd.py
+site_name: tarpitd.py
+
+repo_url: https://github.com/ImBearChild/tarpitd.py/
+edit_uri: blob/master/docs/
 
 nav:
   - Home: index.md
