@@ -141,6 +141,13 @@ this behavior.
 
 ### TLS
 
+#### tls_slow_hello
+
+Tested with: openssl (cli), gnutls (cli)
+
+Responds with a long (but still valid) server hello. Clients will read the
+complete message before the connection is closed.
+
 #### tls_endless_hello_request
 
 Tested with: openssl (cli), curl (with openssl)
