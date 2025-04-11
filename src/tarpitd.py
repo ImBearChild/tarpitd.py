@@ -32,7 +32,7 @@ Load configuration from file.
 
 #### `-s, --serve PATTERN:HOST:PORT [PATTERN:HOST:PORT ...]`
 
-Start a tarpit pattern on specified host and port.
+Start a tarpit pattern on the specified host and port.
 
 The name of PATTERN is case-insensitive. For a complete list of supported
 patterns, see the “TARPIT PATTERN” section below.
@@ -49,14 +49,14 @@ negative value causes the program to send one byte every |RATE| seconds
 
 Log client access to FILE.
 
-The output is jsonl format. Will log to stdout if FILE is left blank.
+The output is in jsonl format. Logs to stdout if FILE is left blank.
 
 #### `-e, --examine-client [{check}]`
 
-Examine client before sending response.
+Examine the client before sending a response.
 
-Currently implication will check first few bytes in the request, to confirm
-that the client is using corresponding protocol.
+The current implementation checks the first few bytes of the request to
+confirm that the client is using the corresponding protocol.
 
 #### `--manual MANUAL`
 
@@ -81,6 +81,14 @@ Some clients will wait indefinitely for the header to end (or for a blank line
 indicating the end of the headers), while others (like curl) may have header
 size restrictions and close the connection once the limit is reached.
 
+#### http_bad_site
+
+Tested with: Firefox, Chromium
+
+Responds to the client with a small HTML page containing many links and a
+dead-loop script. Browsers that support JavaScript will get stuck, and those
+links may cause crawlers to repeatedly pull the webpage.
+
 #### http_deflate_html_bomb
 
 Tested with: Firefox, Chromium
@@ -98,12 +106,12 @@ have sufficient disk space to handle the decompressed content.
 
 Tested with: Firefox, Chromium, curl
 
-Feeds the client with a large amount of compressed zero data. The current
+Feeds the client a large amount of compressed zero data. The current
 implementation sends a compressed 1 MB file that decompresses to approximately
 1 GB, with added invalid HTML to further confuse the client.
 
-Note: deflate compress algorithm has its maximum compression rate limit, at
-1030.3:1.
+Note: The deflate compression algorithm has its maximum compression rate limit
+at 1030.3:1.
 
 ### SSH
 
@@ -113,11 +121,11 @@ Tested with: OpenSSH
 
 endlessh is a well-known SSH tarpit that traps SSH clients by sending endless
 banner messages. Although named “endlessh”, it does not implement the full SSH
-protocol; it rather continuously emits banner data. As a result, port scanners
+protocol; it simply emits continuous banner data. As a result, port scanners
 (such as nmap and censys) will not mark the port as running a true SSH
 service.
 
-### ssh_trans_hold
+#### ssh_trans_hold
 
 Tested with: OpenSSH
 
@@ -140,25 +148,25 @@ Tested with: openssl (cli), curl (with openssl)
 Sends an endless series of HelloRequest messages to the client. According to
 IETF RFC 5246 (the TLS 1.2 specification), clients should ignore extra
 HelloRequest messages during the negotiation phase, effectively keeping the
-connection open. It will affect all client use OpenSSL, including curl.
+connection open. This will affect all clients using OpenSSL, including curl.
 
-Firefox will report timeout after 10 seconds. GNU TLS (and Wget using it) will
-disconnect immediately, complaining about handshake failure.
+Firefox will report a timeout after 10 seconds. GNU TLS (and wget using it)
+will disconnect immediately, complaining about handshake failure.
 
 ### MISC
 
 #### egsh_aminoas
 
-Tested with: openssh
+Tested with: OpenSSH
 
 An alternative to endlessh, this service not only keeps connections open but
 also adds a cultural touch.
 
-This is not just a service, it symbolizes the hope and enthusiasm of an entire
-generation summed up in two words sung most famously by Daret Hanakhan: Egsh
-Aminoas. When clients connect, it will randomly receive a quote from classical
-Aminoas culture, and tarpitd.py will show you the same quote in log at the
-same time.
+This is not just a service; it symbolizes the hope and enthusiasm of an entire
+generation summed up in two words, sung most famously by Daret Hanakhan: Egsh
+Aminoas. When clients connect, they will randomly receive a quote from
+classical Aminoas culture, and tarpitd.py will log the same quote
+simultaneously.
 
 ## EXAMPLES
 
@@ -178,8 +186,8 @@ Start an endless HTTP tarpit with a rate limit of 1 KB/s:
 
     tarpitd.py -r1024 -s HTTP_DEFLATE_HTML_BOMB:0.0.0.0:8088
 
-Start two different HTTP tarpit services concurrently (the name of pattern is
-case-insensitive):
+Start two different HTTP tarpit services concurrently (the name of the pattern
+is case-insensitive):
 
     tarpitd.py -s http_deflate_html_bomb:127.0.0.1:8080 \
                   HTTP_ENDLESS_COOKIE:0.0.0.0:8088
@@ -188,16 +196,17 @@ case-insensitive):
 
 ### CONNECTION RESET
 
-Client may face connection reset when tarpitd.py send a lot of data and then
-close the connection before client receive all of it.
+Clients may face a connection reset when tarpitd.py sends a lot of data and
+then closes the connection before the client has received all of it.
 
-Root of this problem is not clear, since tarpitd.py will wait until all data
-is write to the socket before closing it. So if a client have not received all
-data, tarpitd.py will not close connection.
+The root of this problem is not clear, as tarpitd.py will wait until all data
+is written to the socket before closing it. Therefore, if a client has not
+received all the data, tarpitd.py will not close the connection.
 
-A lot means only `http_deflate_size_bomb` with high or no rate limit will face
-this problem. However, because use of rate limit is highly recommend and by
-default, it won't affect our main use case.
+“A lot” in this context means that only `http_deflate_size_bomb` with high or
+no rate limit will face this problem. However, since the use of a rate limit
+is highly recommended (and enabled by default), it should not affect our main
+use case.
 
 ## AUTHOR
 
@@ -222,7 +231,7 @@ tarpitd.conf - configuration file of tarpitd
 
 ## DESCRIPTION
 
-It is a toml format file.
+It is a TOML format file.
 
 ## `[tarpits.<name>]` Table
 
@@ -230,55 +239,60 @@ It is a toml format file.
 
 Name of this tarpit.
 
-For reference in log output. Have no effect on behavior.
+For reference in log output. Has no effect on behavior.
 
 #### `pattern=` (str)
 
-Specify tarpit pattern.
+Specifies the tarpit pattern.
 
-The name of parttern is case-insensitive. For a complete list of supported
+The name of the pattern is case-insensitive. For a complete list of supported
 patterns, see [tarpit.py(1)](./tarpitd.py.1.md).
 
 #### `rate_limit=` (int)
 
-Set data transfer rate limit.
+Sets the data transfer rate limit.
 
-Follow same rule as [tarpit.py(1)](./tarpitd.py.1.md).
+Follows the same rule as [tarpit.py(1)](./tarpitd.py.1.md).
 
 #### `bind=` (table)
 
-A list of address and port to listen on.
+A list of addresses and ports to listen on.
 
-Every item in this list should contain `host` and `port` value, see example
-below.
+Every item in this list should contain `host` and `port` values; see the
+example below.
 
 #### `max_clients=` (int)
 
-Max clients the server will handle. It's calculated per bind port.
+The maximum number of clients the server will handle. This is calculated per
+bind port.
+
+#### `client_examine` (bool)
+
+Examine the client before sending a response.
 
 ## `[client_trace]` Table
 
 #### `enable=` (bool)
 
-Enable logging client access.
+Enable logging of client access.
 
 #### `stdout=` (bool)
 
-Output client trace log to stdout. (If client_trace is enabled.)
+Output the client trace log to stdout (if client_trace is enabled).
 
-Note: normal runtime log will be print on stderr, this behavior is hard coded.
-Please use service manager or shell to redirect output if you want to save log
+Note: Normal runtime logs are printed to stderr. This behavior is hard-coded.
+Please use a service manager or shell redirection if you want to save the log
 file.
 
 #### `file=` (str)
 
-Path to client_trace log file.
+Path to the client_trace log file.
 
 ## Example
 
 ```toml [tarpits] [tarpits.my_cool_ssh_tarpit] pattern = "ssh_trans_hold"
-max_clients = 128 rate_limit = -2 bind = [{ host = "127.0.0.1", port = "2222"
-}]
+client_examine = true max_clients = 128 rate_limit = -2 bind = [{ host =
+"127.0.0.1", port = "2222" }]
 
 [tarpits.http_tarpit] pattern = "http_deflate_html_bomb" rate_limit = 4096
 bind = [
@@ -824,7 +838,7 @@ class HttpPreGeneratedTarpit(HttpTarpit):
 
 
 class HttpBadHtmlTarpit(HttpPreGeneratedTarpit):
-    PATTERN_NAME = "http_bad_html"
+    PATTERN_NAME = "http_bad_site"
     _BAD_SCRIPT= b"""
     for (;;) {
     console.log("DUCK");}
