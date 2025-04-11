@@ -190,7 +190,7 @@ A negative value causes the program to send one byte every |RATE| seconds (effec
 <h3 id="ssh">SSH</h3>
 <h4 id="endlessh">endlessh</h4>
 <p>Tested with: OpenSSH</p>
-<p>endlessh is a well-known SSH tarpit that traps SSH clients by sending endless banner messages. Although named “endlessh”, it does not implement the full SSH protocol; it simply emits continuous banner data. As a result, port scanners (such as nmap and censys) will not mark the port as running a true SSH service.</p>
+<p>endlessh is a well-known SSH tarpit that traps SSH clients by sending endless banner messages. Although named “endlessh”, it does not implement the full SSH protocol; it simply emits continuous banner data. As a result, port scanners (such as nmap and censys) will not mark the port as running a true SSH service. tarpitd.py have this problem fixed by examining the client and sending SSH identifier to scanners.</p>
 <h4 id="ssh_trans_hold">ssh_trans_hold</h4>
 <p>Tested with: OpenSSH</p>
 <p>This tarpit mimics an SSH server's initial handshake by sending valid SSH transport messages and key exchange information (per IETF RFC 4253). However, instead of completing the exchange, it repeatedly sends <code>SSH_MSG_IGNORE</code> messages. Although clients are supposed to ignore these messages according to the standard, the continual stream keeps the connection open indefinitely.</p>
