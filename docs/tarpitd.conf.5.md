@@ -4,53 +4,57 @@ tarpitd.conf - configuration file of tarpitd
 
 ## DESCRIPTION
 
-It is a toml format file.
+It is a TOML format file.
 
 ## `[tarpits.<name>]` Table
 
 #### `<name>`
 
-Name of this tarpit. 
+Name of this tarpit.
 
-For reference in log output. Have no effect on behavior.
+For reference in log output. Has no effect on behavior.
 
 #### `pattern=` (str)
 
-Specify tarpit pattern. 
+Specifies the tarpit pattern.
 
-The name of parttern is case-insensitive. For a complete list of supported patterns, see [tarpit.py(1)](./tarpitd.py.1.md).
+The name of the pattern is case-insensitive. For a complete list of supported patterns, see [tarpit.py(1)](./tarpitd.py.1.md).
 
 #### `rate_limit=` (int)
 
-Set data transfer rate limit. 
+Sets the data transfer rate limit.
 
-Follow same rule as [tarpit.py(1)](./tarpitd.py.1.md).
+Follows the same rule as [tarpit.py(1)](./tarpitd.py.1.md).
 
 #### `bind=` (table)
 
-A list of address and port to listen on. 
+A list of addresses and ports to listen on.
 
-Every item in this list should contain `host` and `port` value, see example below.
+Every item in this list should contain `host` and `port` values; see the example below.
 
 #### `max_clients=` (int)
 
-Max clients the server will handle. It's calculated per bind port.
+The maximum number of clients the server will handle. This is calculated per bind port.
+
+#### `client_examine` (bool)
+
+Examine the client before sending a response.
 
 ## `[client_trace]` Table
 
 #### `enable=` (bool)
 
-Enable logging client access.
+Enable logging of client access.
 
 #### `stdout=` (bool)
 
-Output client trace log to stdout. (If client_trace is enabled.)
+Output the client trace log to stdout (if client_trace is enabled).
 
-Note: normal runtime log will be print on stderr, this behavior is hard coded. Please use service manager or shell to redirect output if you want to save log file.
+Note: Normal runtime logs are printed to stderr. This behavior is hard-coded. Please use a service manager or shell redirection if you want to save the log file.
 
 #### `file=` (str)
 
-Path to client_trace log file. 
+Path to the client_trace log file.
 
 ## Example
 
@@ -58,6 +62,7 @@ Path to client_trace log file.
 [tarpits]
 [tarpits.my_cool_ssh_tarpit]
 pattern = "ssh_trans_hold"
+client_examine = true
 max_clients = 128 
 rate_limit = -2
 bind = [{ host = "127.0.0.1", port = "2222" }]
