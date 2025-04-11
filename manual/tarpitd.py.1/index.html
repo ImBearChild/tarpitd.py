@@ -7,14 +7,14 @@
         
         
         
-        <link rel="shortcut icon" href="../img/favicon.ico">
+        <link rel="shortcut icon" href="../../img/favicon.ico">
         <title>Tarpitd.py.1 - Tarpitd.py</title>
-        <link href="../css/bootstrap.min.css" rel="stylesheet">
-        <link href="../css/fontawesome.min.css" rel="stylesheet">
-        <link href="../css/brands.min.css" rel="stylesheet">
-        <link href="../css/solid.min.css" rel="stylesheet">
-        <link href="../css/v4-font-face.min.css" rel="stylesheet">
-        <link href="../css/base.css" rel="stylesheet">
+        <link href="../../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../../css/brands.min.css" rel="stylesheet">
+        <link href="../../css/solid.min.css" rel="stylesheet">
+        <link href="../../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../../css/base.css" rel="stylesheet">
         <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" >
         <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" disabled>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -24,7 +24,7 @@
     <body>
         <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
             <div class="container">
-                <a class="navbar-brand" href="..">Tarpitd.py</a>
+                <a class="navbar-brand" href="../..">Tarpitd.py</a>
                 <!-- Expander button -->
                 <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
                     <span class="navbar-toggler-icon"></span>
@@ -35,11 +35,18 @@
                         <!-- Main navigation -->
                         <ul class="nav navbar-nav">
                             <li class="nav-item">
-                                <a href=".." class="nav-link">Home</a>
+                                <a href="../.." class="nav-link">Home</a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="../../getting-started/" class="nav-link">Guide</a>
                             </li>
                             <li class="nav-item dropdown">
                                 <a href="#" class="nav-link dropdown-toggle active" aria-current="page" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Manual</a>
                                 <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../" class="dropdown-item">Index</a>
+</li>
                                     
 <li>
     <a href="./" class="dropdown-item active" aria-current="page">Tarpitd.py.1</a>
@@ -50,6 +57,9 @@
 </li>
                                 </ul>
                             </li>
+                            <li class="nav-item">
+                                <a href="../../about/" class="nav-link">About</a>
+                            </li>
                         </ul>
 
                     <ul class="nav navbar-nav ms-md-auto">
@@ -59,7 +69,7 @@
                             </a>
                         </li>
                             <li class="nav-item">
-                                <a rel="prev" href=".." class="nav-link">
+                                <a rel="prev" href="../" class="nav-link">
                                     <i class="fa fa-arrow-left"></i> Previous
                                 </a>
                             </li>
@@ -186,6 +196,9 @@ A negative value causes the program to send one byte every |RATE| seconds (effec
 <p>This tarpit mimics an SSH server's initial handshake by sending valid SSH transport messages and key exchange information (per IETF RFC 4253). However, instead of completing the exchange, it repeatedly sends <code>SSH_MSG_IGNORE</code> messages. Although clients are supposed to ignore these messages according to the standard, the continual stream keeps the connection open indefinitely.</p>
 <p>Note: The implementation advertises itself as OpenSSH 8.9 on Ubuntu and replays a pre-recorded SSH key exchange. Future updates may alter aspects of this behavior.</p>
 <h3 id="tls">TLS</h3>
+<h4 id="tls_slow_hello">tls_slow_hello</h4>
+<p>Tested with: openssl (cli), gnutls (cli)</p>
+<p>Responds with a long (but still valid) server hello. Clients will read the complete message before the connection is closed.</p>
 <h4 id="tls_endless_hello_request">tls_endless_hello_request</h4>
 <p>Tested with: openssl (cli), curl (with openssl)</p>
 <p>Sends an endless series of HelloRequest messages to the client. According to IETF RFC 5246 (the TLS 1.2 specification), clients should ignore extra HelloRequest messages during the negotiation phase, effectively keeping the connection open. This will affect all clients using OpenSSL, including curl.</p>
@@ -217,7 +230,7 @@ A negative value causes the program to send one byte every |RATE| seconds (effec
 <h3 id="connection-reset">CONNECTION RESET</h3>
 <p>Clients may face a connection reset when tarpitd.py sends a lot of data and then closes the connection before the client has received all of it.</p>
 <p>The root of this problem is not clear, as tarpitd.py will wait until all data is written to the socket before closing it. Therefore, if a client has not received all the data, tarpitd.py will not close the connection.</p>
-<p>“A lot” in this context means that only <code>http_deflate_size_bomb</code> with high or no rate limit will face this problem. However, since the use of a rate limit is highly recommended (and enabled by default), it should not affect our main use case.</p>
+<p>“A lot” in this context means that only <code>http_deflate_size_bomb</code> with high or no rate limit, and set <code>max_client</code> to a relatively low value, will face this problem. However, since the use of a rate limit is highly recommended (and enabled by default), it should not affect our main use case.</p>
 <h2 id="author">AUTHOR</h2>
 <p>Nianqing Yao [imbearchild at outlook.com]</p>
 <hr />
@@ -234,13 +247,13 @@ A negative value causes the program to send one byte every |RATE| seconds (effec
             <hr>
             <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
         </footer>
-        <script src="../js/bootstrap.bundle.min.js"></script>
+        <script src="../../js/bootstrap.bundle.min.js"></script>
         <script>
-            var base_url = "..",
+            var base_url = "../..",
                 shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
         </script>
-        <script src="../js/base.js"></script>
-        <script src="../search/main.js"></script>
+        <script src="../../js/base.js"></script>
+        <script src="../../search/main.js"></script>
 
         <div class="modal" id="mkdocs_search_modal" tabindex="-1" role="dialog" aria-labelledby="searchModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">

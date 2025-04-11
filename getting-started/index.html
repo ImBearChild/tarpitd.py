@@ -8,7 +8,7 @@
         
         
         <link rel="shortcut icon" href="../img/favicon.ico">
-        <title>Tarpitd.conf.5 - Tarpitd.py</title>
+        <title>Guide - Tarpitd.py</title>
         <link href="../css/bootstrap.min.css" rel="stylesheet">
         <link href="../css/fontawesome.min.css" rel="stylesheet">
         <link href="../css/brands.min.css" rel="stylesheet">
@@ -37,18 +37,28 @@
                             <li class="nav-item">
                                 <a href=".." class="nav-link">Home</a>
                             </li>
+                            <li class="nav-item">
+                                <a href="./" class="nav-link active" aria-current="page">Guide</a>
+                            </li>
                             <li class="nav-item dropdown">
-                                <a href="#" class="nav-link dropdown-toggle active" aria-current="page" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Manual</a>
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Manual</a>
                                 <ul class="dropdown-menu">
                                     
 <li>
-    <a href="../tarpitd.py.1/" class="dropdown-item">Tarpitd.py.1</a>
+    <a href="../manual/" class="dropdown-item">Index</a>
 </li>
                                     
 <li>
-    <a href="./" class="dropdown-item active" aria-current="page">Tarpitd.conf.5</a>
+    <a href="../manual/tarpitd.py.1/" class="dropdown-item">Tarpitd.py.1</a>
+</li>
+                                    
+<li>
+    <a href="../manual/tarpitd.conf.5/" class="dropdown-item">Tarpitd.conf.5</a>
 </li>
                                 </ul>
+                            </li>
+                            <li class="nav-item">
+                                <a href="../about/" class="nav-link">About</a>
                             </li>
                         </ul>
 
@@ -59,12 +69,12 @@
                             </a>
                         </li>
                             <li class="nav-item">
-                                <a rel="prev" href="../tarpitd.py.1/" class="nav-link">
+                                <a rel="prev" href=".." class="nav-link">
                                     <i class="fa fa-arrow-left"></i> Previous
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a rel="next" class="nav-link disabled">
+                                <a rel="next" href="../manual/" class="nav-link">
                                     Next <i class="fa fa-arrow-right"></i>
                                 </a>
                             </li>
@@ -86,33 +96,20 @@
     <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
         <ul class="nav flex-column">
             
-            <li class="nav-item" data-bs-level="2"><a href="#name" class="nav-link">NAME</a>
+            <li class="nav-item" data-bs-level="1"><a href="#getting-started" class="nav-link">Getting Started</a>
+              <ul class="nav flex-column">
+            <li class="nav-item" data-bs-level="2"><a href="#installation" class="nav-link">Installation</a>
               <ul class="nav flex-column">
               </ul>
             </li>
-            
-            <li class="nav-item" data-bs-level="2"><a href="#description" class="nav-link">DESCRIPTION</a>
+            <li class="nav-item" data-bs-level="2"><a href="#first-few-tarpits" class="nav-link">First Few Tarpits</a>
               <ul class="nav flex-column">
               </ul>
             </li>
-            
-            <li class="nav-item" data-bs-level="2"><a href="#tarpitsname-table" class="nav-link">[tarpits.&lt;name&gt;] Table</a>
+            <li class="nav-item" data-bs-level="2"><a href="#configuration" class="nav-link">Configuration</a>
               <ul class="nav flex-column">
               </ul>
             </li>
-            
-            <li class="nav-item" data-bs-level="2"><a href="#client_trace-table" class="nav-link">[client_trace] Table</a>
-              <ul class="nav flex-column">
-              </ul>
-            </li>
-            
-            <li class="nav-item" data-bs-level="2"><a href="#example" class="nav-link">Example</a>
-              <ul class="nav flex-column">
-              </ul>
-            </li>
-            
-            <li class="nav-item" data-bs-level="2"><a href="#author" class="nav-link">AUTHOR</a>
-              <ul class="nav flex-column">
               </ul>
             </li>
         </ul>
@@ -120,40 +117,45 @@
 </div></div>
                     <div class="col-md-9" role="main">
 
-<h2 id="name">NAME</h2>
-<p>tarpitd.conf - configuration file of tarpitd</p>
-<h2 id="description">DESCRIPTION</h2>
-<p>It is a TOML format file.</p>
-<h2 id="tarpitsname-table"><code>[tarpits.&lt;name&gt;]</code> Table</h2>
-<h4 id="name_1"><code>&lt;name&gt;</code></h4>
-<p>Name of this tarpit.</p>
-<p>For reference in log output. Has no effect on behavior.</p>
-<h4 id="pattern-str"><code>pattern=</code> (str)</h4>
-<p>Specifies the tarpit pattern.</p>
-<p>The name of the pattern is case-insensitive. For a complete list of supported patterns, see <a href="../tarpitd.py.1/">tarpit.py(1)</a>.</p>
-<h4 id="rate_limit-int"><code>rate_limit=</code> (int)</h4>
-<p>Sets the data transfer rate limit.</p>
-<p>Follows the same rule as <a href="../tarpitd.py.1/">tarpit.py(1)</a>.</p>
-<h4 id="bind-table"><code>bind=</code> (table)</h4>
-<p>A list of addresses and ports to listen on.</p>
-<p>Every item in this list should contain <code>host</code> and <code>port</code> values; see the example below.</p>
-<h4 id="max_clients-int"><code>max_clients=</code> (int)</h4>
-<p>The maximum number of clients the server will handle. This is calculated per bind port.</p>
-<h4 id="client_examine-bool"><code>client_examine</code> (bool)</h4>
-<p>Examine the client before sending a response.</p>
-<h2 id="client_trace-table"><code>[client_trace]</code> Table</h2>
-<h4 id="enable-bool"><code>enable=</code> (bool)</h4>
-<p>Enable logging of client access.</p>
-<h4 id="stdout-bool"><code>stdout=</code> (bool)</h4>
-<p>Output the client trace log to stdout (if client_trace is enabled).</p>
-<p>Note: Normal runtime logs are printed to stderr. This behavior is hard-coded. Please use a service manager or shell redirection if you want to save the log file.</p>
-<h4 id="file-str"><code>file=</code> (str)</h4>
-<p>Path to the client_trace log file.</p>
-<h2 id="example">Example</h2>
+<h1 id="getting-started">Getting Started</h1>
+<h2 id="installation">Installation</h2>
+<p><strong>Note:</strong> Tarpitd.py requires <strong>Python 3.11 or higher</strong>!</p>
+<p>You don't have to run <code>pip install</code> or clone any repositories—just download the <a href="https://github.com/ImBearChild/tarpitd.py/raw/main/src/tarpitd.py">tarpitd.py</a> script and place it wherever you prefer.</p>
+<p>To use it as an executable, move the script to a directory listed in your <code>$PATH</code> (commonly <code>/usr/local/bin</code> or <code>~/.local/bin</code>) and mark it as executable:</p>
+<pre><code class="language-bash">chmod +x tarpitd.py
+</code></pre>
+<p>If you’d rather install it via pip, you can do so with:</p>
+<pre><code class="language-bash">python -m pip install git+https://github.com/ImBearChild/tarpitd.py.git@main
+</code></pre>
+<h2 id="first-few-tarpits">First Few Tarpits</h2>
+<h3 id="slowing-down-ssh-brute-force-attacks">Slowing Down SSH Brute-Force Attacks</h3>
+<p>SSH ports are frequent targets for brute-force attacks. By converting the SSH port into a “trap,” attackers connecting to the port receive endless banner messages or continuous ignore messages that force them to wait for a response. This significantly lengthens the time required for each attack attempt.</p>
+<p><em>Example: Run an SSH tarpit (in endlessh mode) on port 2222 of your machine:</em></p>
+<pre><code class="language-bash">tarpitd.py -s endlessh:0.0.0.0:2222
+</code></pre>
+<p>This setup is effective for defending against SSH brute-force attacks by forcing attackers to spend much longer time on each connection, increasing the likelihood they will be detected and blocked.</p>
+<h3 id="thwarting-automated-http-scanning-and-crawling">Thwarting Automated HTTP Scanning and Crawling</h3>
+<p>Automated tools and crawlers are often used to scan for vulnerabilities and harvest content. </p>
+<p>For HTTP services, you can launch a tarpit pattern that  an endless stream of HTTP headers. This forces scanning tools and crawlers to wait, drastically reducing their efficiency. </p>
+<p>For clients connecting via HTTPS/TLS, you can use one of tarpitd.py’s TLS pattern – such as sending an endless sequence of HelloRequest messages. In this mode, connected TLS clients (for example, those using OpenSSL for testing or scanning) will eventually time out or declare handshake failures due to prolonged waiting.</p>
+<p>tarpitd.py allows you to launch multiple services in a single command, each using a different pattern, listening on different addresses and ports.</p>
+<p><em>Example 1: Run both an HTTP tarpit and an TLS tarpit concurrently:</em></p>
+<pre><code class="language-bash">tarpitd.py -r -2 -s HTTP_ENDLESS_COOKIE:0.0.0.0:8088 -s tls_slow_hello:127.0.0.1:8443
+</code></pre>
+<p>In this case, the option <code>-r -2</code> makes the program wait 2 seconds for every byte sent, forcing each malicious request to endure a long delay.</p>
+<p>Want to fight back harder? How about sending resource-intensive deflate-compressed data? This pattern will force client consume excessive resources, making them CPU-intensive and memory-intensive.</p>
+<p><em>Example 2: Consume client resources using a deflate-compressed HTML bomb:</em></p>
+<pre><code class="language-bash">tarpitd.py -r 1024 -s HTTP_DEFLATE_HTML_BOMB:0.0.0.0:8088
+</code></pre>
+<p>Here, the tool sends a 1 MB compressed package that, when decompressed, may consume up to 1 GB of memory, with invalid HTML can confuse the client. With a rate limit of 1 KB/s, you can control the output flow while imposing heavy resource usage on the client.</p>
+<h2 id="configuration">Configuration</h2>
+<p>In a real-world scenario, you might need to defend against various types of attacks simultaneously. </p>
+<p>Instead of relying solely on command-line options, you can configure tarpitd.py with a dedicated configuration file. The TOML configuration file allows you to define multiple tarpit services with separate settings, such as different tarpit modes, rate limits, bind addresses, and client examination rules. This approach is particularly useful if you need to run several tarpit instances simultaneously, each with its own tailored behavior.</p>
+<p><em>Example: Combine examples up</em></p>
 <pre><code class="language-toml">[tarpits]
 [tarpits.my_cool_ssh_tarpit]
 pattern = &quot;ssh_trans_hold&quot;
-client_examine = true
+client_examine = True
 max_clients = 128 
 rate_limit = -2
 bind = [{ host = &quot;127.0.0.1&quot;, port = &quot;2222&quot; }]
@@ -163,8 +165,7 @@ pattern = &quot;http_deflate_html_bomb&quot;
 rate_limit = 4096
 bind = [
   { host = &quot;127.0.0.1&quot;, port = &quot;8080&quot; },
-  { host = &quot;::1&quot;, port = &quot;8080&quot; },
-  { host = &quot;127.0.0.1&quot;, port = &quot;8888&quot; },
+  { host = &quot;127.0.0.1&quot;, port = &quot;8000&quot; },
 ]
 
 [tarpits.tls_tarpit]
@@ -178,17 +179,17 @@ bind = [
 [client_trace]
 enable   = true
 file = &quot;./client_trace.log&quot;
-stdout   = true
+stdout   = false
 </code></pre>
-<h2 id="author">AUTHOR</h2>
-<p>Nianqing Yao [imbearchild at outlook.com]</p>
-<hr />
-<blockquote>
-<p>This program was made on the lands of
-  the Aminoac people of the Amacinoas Nation. 
-  We pay our respects to their Elders, past and present. 
-  Sovereignty was never ceded.</p>
-</blockquote></div>
+<p>In this configuration:</p>
+<ul>
+<li>Each tarpit service (e.g., my_cool_ssh_tarpit, http_tarpit, tls_tarpit) is defined with its own settings.</li>
+<li>You can customize the bind addresses (host and port), rate limits, client examination, and maximum connection limits individually.</li>
+<li>The global [client_trace] section allows you to log connection details for future analysis.</li>
+</ul>
+<p>Save it to <code>conf.toml</code>. And run tarpitd.py with it. </p>
+<pre><code>tarpitd.py -c ./conf.toml
+</code></pre></div>
             </div>
         </div>
 
