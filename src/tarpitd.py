@@ -328,78 +328,6 @@ import typing
 # module for cli use only will be import when needed
 
 
-class TarpitWriter:
-    """
-    Wraps a asyncio.StreamWriter, adding speed limit on it.
-    """
-
-    async def write_and_drain(self, data: bytes):
-        raise NotImplementedError
-
-    async def _write_with_interval(self, data):
-        for b in range(0, len(data)):
-            await asyncio.sleep(abs(self.rate))
-            try:  # Handle Exception, because we are in loop
-                self.writer.write(data[b : b + 1])
-                await self.writer.drain()
-            except (ConnectionResetError, BrokenPipeError) as e:
-                raise e
-                return
-        await self.writer.drain()
-
-    async def _write_normal(self, data):
-        self.writer.write(data)
-        await self.writer.drain()
-
-    async def _write_with_speedlimit(self, data):
-        """
-        Send data in under a speed limit. Send no more than "rate" bytes per second.
-        This function is used when crate TarpitWriter with positive "rate" value.
-        """
-        length = len(data)
-        count = length // self.rate
-        for b in range(0, count):
-            await asyncio.sleep(1)
-            try:
-                self.writer.write(data[b * self.rate : (b + 1) * self.rate])
-                await self.writer.drain()
-            except (ConnectionResetError, BrokenPipeError) as e:
-                raise e
-                return
-        self.writer.write(data[(count) * self.rate :])
-        await self.writer.drain()
-
-    def change_rate_limit(self, rate: int):
-        logging.debug(f"rate limit: {rate}")
-        self.rate = rate
-        if rate == 0:
-            write_inner = self._write_normal
-        elif rate < 0:
-            write_inner = self._write_with_interval
-        else:
-            write_inner = self._write_with_speedlimit
-
-        self.write_and_drain = write_inner  # type: ignore
-        # Monkey patching
-
-    def __init__(self, rate, writer: asyncio.StreamWriter) -> None:
-        self.writer = writer
-        self.drain = writer.drain
-        self.close = writer.close
-        self.wait_closed = writer.wait_closed
-        self.write_eof = writer.write_eof
-        self.change_rate_limit(rate)
-
-    pass
-
-
-class BytesLiteralEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, bytes):
-            return repr(obj)
-        return json.JSONEncoder.default(self, obj)
-
-
 class BaseTarpit:
     """
     This class should not be used directly.
@@ -440,6 +368,76 @@ class BaseTarpit:
 
         pass
 
+    class BytesLiteralEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, bytes):
+                return repr(obj)
+            return json.JSONEncoder.default(self, obj)
+
+    class TarpitWriter:
+        """
+        Wraps a asyncio.StreamWriter, adding speed limit on it.
+        """
+
+        async def write_and_drain(self, data: bytes):
+            raise NotImplementedError
+
+        async def _write_with_interval(self, data):
+            for b in range(0, len(data)):
+                await asyncio.sleep(abs(self.rate))
+                try:  # Handle Exception, because we are in loop
+                    self.writer.write(data[b : b + 1])
+                    await self.writer.drain()
+                except (ConnectionResetError, BrokenPipeError) as e:
+                    raise e
+                    return
+            await self.writer.drain()
+
+        async def _write_normal(self, data):
+            self.writer.write(data)
+            await self.writer.drain()
+
+        async def _write_with_speedlimit(self, data):
+            """
+            Send data in under a speed limit. Send no more than "rate" bytes per second.
+            This function is used when crate BaseTarpit.TarpitWriter with positive "rate" value.
+            """
+            length = len(data)
+            count = length // self.rate
+            for b in range(0, count):
+                await asyncio.sleep(1)
+                try:
+                    self.writer.write(data[b * self.rate : (b + 1) * self.rate])
+                    await self.writer.drain()
+                except (ConnectionResetError, BrokenPipeError) as e:
+                    raise e
+                    return
+            self.writer.write(data[(count) * self.rate :])
+            await self.writer.drain()
+
+        def change_rate_limit(self, rate: int):
+            logging.debug(f"rate limit: {rate}")
+            self.rate = rate
+            if rate == 0:
+                write_inner = self._write_normal
+            elif rate < 0:
+                write_inner = self._write_with_interval
+            else:
+                write_inner = self._write_with_speedlimit
+
+            self.write_and_drain = write_inner  # type: ignore
+            # Monkey patching
+
+        def __init__(self, rate, writer: asyncio.StreamWriter) -> None:
+            self.writer = writer
+            self.drain = writer.drain
+            self.close = writer.close
+            self.wait_closed = writer.wait_closed
+            self.write_eof = writer.write_eof
+            self.change_rate_limit(rate)
+
+        pass
+
     def _setup(self):
         """
         Setting up the Tarpit
@@ -462,7 +460,7 @@ class BaseTarpit:
                     "conn_info": dataclasses.asdict(conn_info),
                     "comment": comment,
                 },
-                cls=BytesLiteralEncoder,
+                cls=BaseTarpit.BytesLiteralEncoder,
             )
         )
 
@@ -526,7 +524,7 @@ class BaseTarpit:
                                     conn_info,
                                     comment=dataclasses.asdict(result),
                                 )
-                            tarpit_writer = TarpitWriter(
+                            tarpit_writer = BaseTarpit.TarpitWriter(
                                 self._config.rate_limit, writer=writer
                             )
                             await real_handler(reader, tarpit_writer)
@@ -586,6 +584,7 @@ class BaseTarpit:
         """
         self.logger = logging.getLogger(__name__)
         self._config: RuntimeConfig = self.RuntimeConfig()  # type: ignore  # noqa: F821
+        # Use self.RuntimeConfig() here, so subclass can impl their own
 
         self._config.update_from_dict(config)
         self.logger.info(
@@ -613,7 +612,7 @@ class EchoTarpit(BaseTarpit):
     PATTERN_NAME: str = "_internal_echo"
     _client_examine = BaseTarpit._client_examine_empty
 
-    async def _real_handler(self, reader, writer: TarpitWriter):
+    async def _real_handler(self, reader, writer: BaseTarpit.TarpitWriter):
         """
         Callback for providing service
 
@@ -644,7 +643,7 @@ class EndlessBannerTarpit(BaseTarpit):
     # displayed, control character filtering, as discussed in [SSH-ARCH],
     # SHOULD be used.  The primary use of this feature is to allow TCP-
     # wrappers to display an error message before disconnecting.
-    async def _real_handler(self, reader, writer: TarpitWriter):
+    async def _real_handler(self, reader, writer: BaseTarpit.TarpitWriter):
         while True:
             await writer.write_and_drain(b"%x\r\n" % random.randint(0, 2**32))
 
@@ -664,7 +663,7 @@ class EgshAminoasTarpit(BaseTarpit):
     _aminocese_cache: list = []
 
     # cSpell:enable
-    async def _real_handler(self, reader, writer: TarpitWriter):
+    async def _real_handler(self, reader, writer: BaseTarpit.TarpitWriter):
         while True:
             a = random.choice(self._aminocese_cache)
             header = a.encode() + b"\r\n"
@@ -678,63 +677,70 @@ class EgshAminoasTarpit(BaseTarpit):
 #
 # HTTP
 #
-class HttpConnection:
-    @staticmethod
-    def to_bytes(data) -> bytes:
-        t = type(data)
-        if t is bytearray:
-            return data
-        elif t is bytes:
-            return data
-        elif t is str:
-            return bytes(data, "ASCII")
-        else:
-            return bytes(data)
-
-    async def send_status_line(self, code: int, version: bytes = b"HTTP/1.1"):
-        status = http.HTTPStatus(code)
-        await self.writer.write_and_drain(
-            b"%s %d %s\r\n" % (version, status, bytes(status.phrase, "ASCII"))
-        )
-        await self.send_raw(b"Server: Apache/2.4.9\r\nX-Powered-By: PHP/5.1.2-1+b1\r\n")
-        pass
-
-    async def send_header(self, keyword: bytes, value: bytes):
-        await self.writer.write_and_drain(b"%s: %s\r\n" % (keyword, value))
-        pass
-
-    async def end_headers(self):
-        await self.writer.write_and_drain(b"\r\n")
-
-    async def send_content(
-        self,
-        content: bytes,
-        type_: bytes = b"text/html; charset=UTF-8",
-        encoding: bytes = b"",
-    ):
-        await self.send_header(b"Content-Type", type_)
-        await self.send_header(b"Content-Length", b"%d" % len(content))
-        if len(encoding):
-            await self.send_header(b"Content-Encoding", encoding)
-        await self.end_headers()
-        await self.send_raw(content)
-        pass
-
-    async def close(self):
-        await self.writer.drain()
-        self.writer.close()
-        await self.writer.wait_closed()
-
-    def __init__(self, reader, writer: TarpitWriter) -> None:
-        self.reader = reader
-        self.writer = writer
-        self.send_raw = writer.write_and_drain
-        pass
-
-    pass
 
 
 class HttpTarpit(BaseTarpit):
+    class Connection:
+        @staticmethod
+        def to_bytes(data) -> bytes:
+            t = type(data)
+            if t is bytearray:
+                return data
+            elif t is bytes:
+                return data
+            elif t is str:
+                return bytes(data, "ASCII")
+            else:
+                return bytes(data)
+
+        async def send_status_line(self, code: int, version: bytes = b"HTTP/1.1"):
+            status = http.HTTPStatus(code)
+            await self.writer.write_and_drain(
+                b"%s %d %s\r\n" % (version, status, bytes(status.phrase, "ASCII"))
+            )
+            await self.send_raw(
+                b"Server: Apache/2.4.9\r\nX-Powered-By: PHP/5.1.2-1+b1\r\n"
+            )
+            pass
+
+        async def send_header(self, keyword: bytes, value: bytes):
+            await self.writer.write_and_drain(b"%s: %s\r\n" % (keyword, value))
+            pass
+
+        async def end_headers(self):
+            await self.writer.write_and_drain(b"\r\n")
+
+        async def send_content(
+            self,
+            content: bytes,
+            type_: bytes = b"",
+            encoding: bytes = b"",
+        ):
+            if len(type_):
+                await self.send_header(b"Content-Type", type_)
+            else:
+                await self.send_header(b"Content-Type", b"text/html; charset=UTF-8")
+
+            await self.send_header(b"Content-Length", b"%d" % len(content))
+            if len(encoding):
+                await self.send_header(b"Content-Encoding", encoding)
+            await self.end_headers()
+            await self.send_raw(content)
+            pass
+
+        async def close(self):
+            await self.writer.drain()
+            self.writer.close()
+            await self.writer.wait_closed()
+
+        def __init__(self, reader, writer: BaseTarpit.TarpitWriter) -> None:
+            self.reader = reader
+            self.writer = writer
+            self.send_raw = writer.write_and_drain
+            pass
+
+        pass
+
     async def _client_examine(
         self, reader: asyncio.StreamReader
     ) -> BaseTarpit.ClientExamineResult:
@@ -747,11 +753,11 @@ class HttpTarpit(BaseTarpit):
 
         return self.ClientExamineResult(expected=False, examined_data=data)
 
-    async def _http_handler(self, connection: HttpConnection):
+    async def _http_handler(self, connection: Connection):
         pass
 
-    async def _real_handler(self, reader, writer: TarpitWriter):
-        conn = HttpConnection(reader, writer)
+    async def _real_handler(self, reader, writer: BaseTarpit.TarpitWriter):
+        conn = HttpTarpit.Connection(reader, writer)
         await self._http_handler(conn)
         pass
 
@@ -782,25 +788,81 @@ class HttpEndlessHeaderTarpit(HttpTarpit):
             await connection.send_raw(header)
 
 
-class HttpDeflateTarpit(HttpTarpit):
+class HttpPreGeneratedTarpit(HttpTarpit):
     @dataclasses.dataclass
     class RuntimeConfig(HttpTarpit.RuntimeConfig):
-        rate_limit = 16
-        compression_type = "gzip"
+        rate_limit: int = 128
         pass
 
-    async def _http_handler(self, connection: HttpConnection):
+    @dataclasses.dataclass
+    class Content:
+        data: bytes
+        type_: str = ""
+        encoding: str = ""
+        pass
+
+    async def _http_handler(self, connection: HttpTarpit.Connection):
         await connection.send_status_line(200)
         await connection.send_content(
-            self._deflate_content, encoding=bytes(self.compression_type, "ASCII")
+            content=self._content_generated.data,
+            type_=self._content_generated.type_.encode("ASCII"),
+            encoding=self._content_generated.encoding.encode("ASCII"),
         )
         await connection.close()  # close it to release (or should we keep it open)
         return
 
+    def _setup(self):
+        self._content_generated = self._generate_content()
+
+    def _generate_content(self) -> Content:
+        """
+        Subclass should overload this method
+        """
+        raise NotImplementedError
+
+    pass
+
+
+class HttpBadHtmlTarpit(HttpPreGeneratedTarpit):
+    PATTERN_NAME = "http_bad_html"
+    _BAD_SCRIPT= b"""
+    for (;;) {
+    console.log("DUCK");}
+    """
+
+    def _generate_content(self):
+        data = bytearray()
+
+        data.extend(
+            b"<!DOCTYPE html><html><body><script src='/%x.js'></script><script>%s</script>"
+            % (random.randint(0, 2**32),self._BAD_SCRIPT)
+        )
+
+        for i in range(300):
+            data.extend(
+                b"<div id='%x'>SUPER<a href='/%x.html'>HOT</a>"
+                % (random.randint(0, 2**32), random.randint(0, 2**32))
+            )
+        for i in range(300):
+            data.extend(b"</div>")
+
+        self.logger.debug("generated bad html %i kb", len(data) / 1024)
+        return self.Content(data)
+
+    pass
+
+
+class HttpDeflateTarpit(HttpPreGeneratedTarpit):
+    @dataclasses.dataclass
+    class RuntimeConfig(HttpPreGeneratedTarpit.RuntimeConfig):
+        rate_limit = 16
+        compression_type = "gzip"
+        pass
+
     def _make_deflate(self, compressobj):
         raise NotImplementedError
 
-    def _setup(self):
+    def _generate_content(self):
         self._deflate_content = b""
         self.compression_type = self._config.compression_type
         match self.compression_type:
@@ -809,6 +871,7 @@ class HttpDeflateTarpit(HttpTarpit):
             case "deflate":
                 compressobj = zlib.compressobj(level=9, wbits=15)
         self._make_deflate(compressobj)
+        return self.Content(data=self._deflate_content, encoding=self.compression_type)
 
     pass
 
@@ -846,6 +909,7 @@ class HttpDeflateHtmlBombTarpit(HttpDeflateTarpit):
         bomb = bytearray()
         # To successfully make Firefox and Chrome stuck, only zeroes is not enough
         # Chromium needs 2.1 GB of memory during displaying this page, and SIGSEGV finally.
+        # about 8MB uncompressed, 20 kb compressed
         bomb.extend(t.compress(b"<!DOCTYPE html><html><body>"))
         bomb.extend(t.compress(b"<div>COOL</dd>" * 102400))
         bomb.extend(t.compress(b"<div>SUPER</a><em>HOT</em></span>" * 102400))
@@ -976,7 +1040,7 @@ class SshTransHoldTarpit(SshTarpit):
             "682e636f6d2c7a6c696200000000000000000000000000"
         )
 
-    async def _real_handler(self, reader, writer: TarpitWriter):
+    async def _real_handler(self, reader, writer: BaseTarpit.TarpitWriter):
         # later_rate = writer.rate
         # if writer.rate < 128:
         # Change to a faster rate to send the KEX handshake
@@ -1073,7 +1137,7 @@ class TlsHelloRequestTarpit(TlsTarpit):
         h = cls.make_handshake_frag(cls.TlsHandshakeType.HELLO_REQUEST, b"")
         return cls.make_record(cls.TlsRecordContentType.HANDSHAKE, h)
 
-    async def _real_handler(self, reader, writer: TarpitWriter):
+    async def _real_handler(self, reader, writer: BaseTarpit.TarpitWriter):
         while True:
             packet = self.make_hello_request_record()
             await writer.write_and_drain(packet)
