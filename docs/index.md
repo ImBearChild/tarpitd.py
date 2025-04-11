@@ -1,38 +1,73 @@
 # tarpitd.py
 
-tarpitd.py is a lightweight daemon written as a single-file Python program. It implements a variety of response patterns that emulate common Internet services, intentionally disrupting client activities by slowing down connections or even triggering crashes. This deceleration mechanism is particularly useful for deterring malicious or misbehaving clients, all while maintaining a low resource footprint.
+Slow your enemy down.
 
-## What Is a Tarpit?
+---
 
-A tarpit, as defined by Wikipedia, is a service on a computer system (typically a server) designed to intentionally delay incoming connections. This concept is analogous to an actual tar pit in nature, where animals become stuck and slowly sink beneath the surface of a swamp. Similarly, an internet tarpit slows down client connections, impeding rapid or automated access.
+tarpitd.py is a **lightweight**, **single-file** network tarpit tool that deliberately delays or disrupts client connections by sending slow or malformed responses.
 
-## Why Use a Tarpit?
+It implements a variety of response patterns that emulate common Internet services, intentionally disrupting client activities or even triggering crashes. This deceleration mechanism is particularly useful for **deterring malicious or misbehaving clients**, all while maintaining a low resource footprint. Start by reading the [introductory tutorial], then check the Unix-style [User Manual] for more information.
 
-A tarpit can be highly beneficial in scenarios involving hostile or automated clients. Here are some examples:
+<style>
+    body.homepage>div.container>div.row>div.col-md-3 {
+    display: none;
+}
+</style>
 
-- **Brute-force Attacks:** A malicious SSH client may repeatedly attempt to log in via port 22 using weak passwords. A tarpit can slow these attempts, increasing the time cost of the attack.
-- **Automated Crawlers:** Malicious web crawlers might try to gather sensitive information from your server. By deliberately slowing down their requests, a tarpit can hinder data collection and reduce the effectiveness of such attacks.
+[introductory tutorial]: getting-started.md
+[User Manual]: manual/index.md
 
-By employing a tarpit, you effectively shift the resource burden, imposing higher costs on the attacker while protecting your server's legitimate operations.
+<div class="text-center">
+<a href="getting-started/" class="btn btn-primary" role="button">Getting Started</a>
+<a href="manual/" class="btn btn-primary" role="button">User Guide</a>
+</div>
 
-## What Is a "pattern" in tarpitd.py?
+<div class="pt-2 pb-4 px-4 my-4 bg-body-tertiary rounded-3">
+<h2 class="display-4 text-center">Features</h2>
 
-In the context of tarpitd.py, a "pattern" refers to a specific response behavior tailored to interact with different protocols and handle various types of client connections. For instance:
+<div class="row">
+  <div class="col-sm-6">
+    <div class="card mb-4">
+      <div class="card-body">
+        <h3 class="card-title">Lightweight</h3>
+        <p class="card-text">
+            The tool is purposefully designed as a single, streamlined file, ensuring a quick and easy download. 
+            Not memory-intensive or CPU-intensive. Actually, it's "sleep-intensive".
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6">
+    <div class="card mb-4">
+      <div class="card-body">
+        <h3 class="card-title">Multi-protocol Support</h3>
+        <p class="card-text">
+            tarpitd.py isn’t limited to one communication standard: it is built with flexibility in mind. Whether the connection attempt uses SSH, HTTP, or even the robust standards of TLS, this tarpit is equipped to decelerating them all. 
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
 
-- **HTTP Endless Header:** To combat a malicious HTTP client, tarpitd.py might maintain a connection by slowly transmitting an endless HTTP header. This response keeps the client effectively trapped. (`http_endless_header`)
-- **HTML Bomb:** Alternatively, tarpitd.py can be configured to send a malicious HTML payload that overloads the client's HTML parser, further exhausting its resources. (`http_deflate_html_bomb`)
-- **SSH Transport Hold:** In order to fight against brute-force attackers, tarpitd.py will perform SSH handshake slowly, and send harmless message to keep connection open. (`ssh_trans_hold`)
-
-Since different response patterns yield different effects—and clients may react in varied ways—tarpitd.py supports multiple tarpit strategies even for a single protocol.
-
-## How About Resource Consumption?
-
-An efficiently implemented tarpit is specifically designed to consume far fewer resources than a conventional server. Traditional server software processes client requests in full, including parsing requests and generating dynamic responses via CGI (e.g., Python or PHP). In contrast, tarpitd.py bypasses most of these steps, instead sending pre-generated content or even arbitrary bytes.
-
-To put it in perspective:
-
-- A typical HTTP server like Apache or Caddy might require hundreds of megabytes—or even gigabytes—of memory depending on the workload. And it will consume much CPU time to prepare a response.
-- In contrast, tarpitd.py may require as little as 12 MB of RAM to serve something as resource-intensive as an HTML bomb.
-With this bomb pre-generated, the only thing needs to do is sending the response. (Sadly, it's still larger than OpenSSHd. Python will take serval MBs, even for printing a "hello world")
-
-In many cases, a tarpit not only conserves resources on the defending side but also imposes greater computational and time costs on the attacker. For example, if the attacker attempts to parse the malicious HTML bomb, they may expend significantly more time and resources than the defender did to generate it. Likewise, if an attacker is solely interested in receiving HTTP headers, the defender’s effort to generate a tarpit response may effectively waste the attacker’s time.
+<div class="row">
+  <div class="col-sm-6">
+    <div class="card">
+      <div class="card-body">
+        <h3 class="card-title">Structured Logging</h3>
+        <p class="card-text">
+            With its integration of the Python standard library’s logging module, tarpitd.py offers advanced logging capabilities. It captures detailed client connection data and outputs this information in a machine-friendly JSONL (JSON Lines) format
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-6">
+    <div class="card">
+      <div class="card-body">
+        <h3 class="card-title">Client Examination</h3>
+        <p class="card-text">
+            A standout feature of tarpitd.py is its ability to check client before sending response. It ensures that each client receives the appropriate reply, and enable the ability to trick <a href="https://nmap.org/book/vscan-technique.html">NULL probe</a>.
+      </div>
+    </div>
+  </div>
+</div>
+</div>

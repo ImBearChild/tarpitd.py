@@ -344,7 +344,6 @@ import sys
 import json
 import dataclasses
 import time
-import typing
 
 # module for cli use only will be import when needed
 
@@ -380,7 +379,7 @@ class BaseTarpit:
         # default backlog is 100
         rate_limit: int = 1
         client_trace: bool = False
-        client_examine: bool = False
+        client_examine: bool = True
 
         def update_from_dict(self, config_data: dict):
             for key, value in config_data.items():
@@ -495,7 +494,7 @@ class BaseTarpit:
         raise NotImplementedError
 
     async def _client_examine(
-        self, reader: asyncio.StreamReader
+        self, reader: asyncio.StreamReader, writer: TarpitWriter | None
     ) -> ClientExamineResult:
         """
         Callback for checking client
@@ -504,9 +503,7 @@ class BaseTarpit:
         """
         raise NotImplementedError
 
-    async def _client_examine_empty(
-        self, reader: asyncio.StreamReader
-    ) -> ClientExamineResult:
+    async def _client_examine_empty(self, *args, **kwargs) -> ClientExamineResult:
         """
         Return ClientExamineResult to pass exam
 
@@ -536,7 +533,11 @@ class BaseTarpit:
                             conn_info,
                         )
                         result: BaseTarpit.ClientExamineResult = (
-                            await self._client_examine(reader=reader)
+                            await self._client_examine(
+                                reader=reader,
+                                writer=BaseTarpit.TarpitWriter(4, writer=writer),
+                                # Hardcode a rate of 4 to slow prober
+                            )
                         )
                         if result is None or result.expected:
                             if result is not None:
@@ -653,6 +654,7 @@ class EchoTarpit(BaseTarpit):
 
 class EndlessBannerTarpit(BaseTarpit):
     PATTERN_NAME: str = "endless_banner"
+    _client_examine = BaseTarpit._client_examine_empty
     # For SSH
 
     # The server MAY send other lines of data before sending the version
@@ -763,7 +765,7 @@ class HttpTarpit(BaseTarpit):
         pass
 
     async def _client_examine(
-        self, reader: asyncio.StreamReader
+        self, reader: asyncio.StreamReader, writer
     ) -> BaseTarpit.ClientExamineResult:
         data = await reader.readexactly(4)
         http_methods = [b"GET ", b"POST", b"HEAD"]
@@ -957,13 +959,19 @@ class SshTarpit(BaseTarpit):
     # see: https://svn.nmap.org/nmap/nmap-service-probes
 
     async def _client_examine(
-        self, reader: asyncio.StreamReader
+        self, reader: asyncio.StreamReader, writer
     ) -> BaseTarpit.ClientExamineResult:
-        data = await reader.readexactly(4)
-        if data.startswith(b"SSH-"):
-            return self.ClientExamineResult(expected=True, examined_data=data)
-
-        return self.ClientExamineResult(expected=False, examined_data=data)
+        try:
+            data = await asyncio.wait_for(reader.read(4),1)
+            if data.startswith(b"SSH-"):
+                # Do not send banner since inner handler will do it
+                return self.ClientExamineResult(expected=True, examined_data=data)
+            else:
+                return self.ClientExamineResult(expected=False, examined_data=data)
+        except asyncio.TimeoutError:
+            # Send banner to deal with null probing (nmap)
+            await writer.write_and_drain(self.SSH_VERSION_STRING)
+            return self.ClientExamineResult(expected=False, examined_data=b"")
 
     class SshMegNumber(enum.IntEnum):
         """
@@ -1093,13 +1101,21 @@ class SshTransHoldTarpit(SshTarpit):
     pass
 
 
+class EndlessSshTarpit(SshTarpit):
+    PATTERN_NAME: str = "endlessh"
+
+    async def _real_handler(self, reader, writer: BaseTarpit.TarpitWriter):
+        while True:
+            await writer.write_and_drain(b"%x\r\n" % random.randint(0, 2**32))
+
+
 class TlsTarpit(BaseTarpit):
     PROTOCOL_VERSION_MAGIC = b"\x03\x03"  # TLS 1.2, also apply to 1.3
 
     async def _client_examine(
-        self, reader: asyncio.StreamReader
+        self, reader: asyncio.StreamReader, writer
     ) -> BaseTarpit.ClientExamineResult:
-        data = await reader.readexactly(4)
+        data = await reader.read(3)
         if data.startswith(b"\x16\x03\x03"):
             return self.ClientExamineResult(expected=True, examined_data=data)
 
@@ -1265,7 +1281,7 @@ def run_from_cli(args):
     else:
         logging.debug("no client trace config from cli")
 
-    if args.examine_client == "check":
+    if args.examine_client == "check" or args.examine_client is None:
         client_examine = True
     else:
         client_examine = False
@@ -1299,7 +1315,7 @@ def run_from_config_dict(config: dict):
     server = []
 
     try:
-        ct = config["client_trace"]["enable"]  # global setting
+        config["client_trace"]["enable"]  # global setting
         ct_logger = logging.getLogger(__name__ + ".client_trace")
         ct_logger.propagate = False
         have_ct_config = True
@@ -1341,7 +1357,7 @@ def run_from_config_dict(config: dict):
         real_tarpit_conf.pop("bind")  # Remove it since its useless
 
         try:
-            ct = tarpit_config["client_trace"]  # tarpit setting
+            tarpit_config["client_trace"]  # tarpit setting
             logging.warning("define client_trace per tarpit is not supported")
         except KeyError:
             pass
@@ -1432,7 +1448,8 @@ def main_cli():
         help="check the client before sending data",
         const="check",
         nargs="?",
-        choices=["check", "probe"],  # TODO: make it
+        choices=["check", "none"],
+        # TODO: make a probe option
         # check is short and simple, probe is longer
     )
 

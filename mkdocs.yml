@@ -2,6 +2,9 @@ site_name: Tarpitd.py
 
 nav:
   - Home: index.md
-  - Manual:
-    - tarpitd.py.1.md
-    - tarpitd.conf.5.md
+  - Guide: getting-started.md
+  - Manual: 
+    - Index: manual/index.md
+    - manual/tarpitd.py.1.md
+    - manual/tarpitd.conf.5.md
+  - About: about.md
