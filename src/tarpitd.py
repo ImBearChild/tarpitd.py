@@ -123,7 +123,8 @@ endlessh is a well-known SSH tarpit that traps SSH clients by sending endless
 banner messages. Although named “endlessh”, it does not implement the full SSH
 protocol; it simply emits continuous banner data. As a result, port scanners
 (such as nmap and censys) will not mark the port as running a true SSH
-service.
+service. tarpitd.py have this problem fixed by examining the client and
+sending SSH identifier to scanners.
 
 #### ssh_trans_hold
 
@@ -211,9 +212,9 @@ is written to the socket before closing it. Therefore, if a client has not
 received all the data, tarpitd.py will not close the connection.
 
 “A lot” in this context means that only `http_deflate_size_bomb` with high or
-no rate limit will face this problem. However, since the use of a rate limit
-is highly recommended (and enabled by default), it should not affect our main
-use case.
+no rate limit, and set `max_client` to a relatively low value, will face this
+problem. However, since the use of a rate limit is highly recommended (and
+enabled by default), it should not affect our main use case.
 
 ## AUTHOR
 
@@ -367,6 +368,7 @@ class BaseTarpit:
     class ClientExamineResult:
         expected: bool = False
         examined_data: bytes = b""
+        comment: str | None = None
 
     @dataclasses.dataclass
     class RuntimeConfig:
@@ -962,7 +964,7 @@ class SshTarpit(BaseTarpit):
         self, reader: asyncio.StreamReader, writer
     ) -> BaseTarpit.ClientExamineResult:
         try:
-            data = await asyncio.wait_for(reader.read(4),1)
+            data = await asyncio.wait_for(reader.read(4), 1)
             if data.startswith(b"SSH-"):
                 # Do not send banner since inner handler will do it
                 return self.ClientExamineResult(expected=True, examined_data=data)
@@ -971,7 +973,9 @@ class SshTarpit(BaseTarpit):
         except asyncio.TimeoutError:
             # Send banner to deal with null probing (nmap)
             await writer.write_and_drain(self.SSH_VERSION_STRING)
-            return self.ClientExamineResult(expected=False, examined_data=b"")
+            return self.ClientExamineResult(
+                expected=False, examined_data=b"", comment="null probing"
+            )
 
     class SshMegNumber(enum.IntEnum):
         """

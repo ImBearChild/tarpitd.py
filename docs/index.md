@@ -55,7 +55,7 @@ It implements a variety of response patterns that emulate common Internet servic
       <div class="card-body">
         <h3 class="card-title">Structured Logging</h3>
         <p class="card-text">
-            With its integration of the Python standard library’s logging module, tarpitd.py offers advanced logging capabilities. It captures detailed client connection data and outputs this information in a machine-friendly JSONL (JSON Lines) format
+            With its integration of the Python standard library’s logging module, tarpitd.py offers advanced logging capabilities. It captures detailed client connection data and outputs this information in a machine-friendly JSONL format
         </p>
       </div>
     </div>
