@@ -345,6 +345,7 @@ import sys
 import json
 import dataclasses
 import time
+import typing
 
 # module for cli use only will be import when needed
 
@@ -396,13 +397,10 @@ class BaseTarpit:
                 return repr(obj)
             return json.JSONEncoder.default(self, obj)
 
-    class TarpitWriter:
+    class Writer:
         """
         Wraps a asyncio.StreamWriter, adding speed limit on it.
         """
-
-        async def write_and_drain(self, data: bytes):
-            raise NotImplementedError
 
         async def _write_with_interval(self, data):
             for b in range(0, len(data)):
@@ -447,8 +445,9 @@ class BaseTarpit:
             else:
                 write_inner = self._write_with_speedlimit
 
-            self.write_and_drain = write_inner  # type: ignore
-            # Monkey patching
+            self.write_and_drain: typing.Callable[[bytes], typing.Awaitable[None]] = (
+                write_inner
+            )
 
         def __init__(self, rate, writer: asyncio.StreamWriter) -> None:
             self.writer = writer
@@ -469,9 +468,13 @@ class BaseTarpit:
         """
         return
 
-    def _log_connection_info(
+    def _internal_log_connection_info(
         self, event, conn_info: ClientLogConnectionInfo, comment=None
     ):
+        """
+        Will be set to self._log_connection_info!
+        Make this private since this should not be
+        """
         self.client_trace_logger.info(
             json.dumps(
                 {
@@ -486,7 +489,7 @@ class BaseTarpit:
             )
         )
 
-    async def _real_handler(self, reader, writer: TarpitWriter):
+    async def _real_handler(self, reader, writer: Writer):
         """
         Callback for providing service
 
@@ -495,8 +498,8 @@ class BaseTarpit:
         """
         raise NotImplementedError
 
-    async def _client_examine(
-        self, reader: asyncio.StreamReader, writer: TarpitWriter | None
+    async def _internal_client_examine(
+        self, reader: asyncio.StreamReader, writer: Writer | None
     ) -> ClientExamineResult:
         """
         Callback for checking client
@@ -537,7 +540,7 @@ class BaseTarpit:
                         result: BaseTarpit.ClientExamineResult = (
                             await self._client_examine(
                                 reader=reader,
-                                writer=BaseTarpit.TarpitWriter(4, writer=writer),
+                                writer=BaseTarpit.Writer(32, writer=writer),
                                 # Hardcode a rate of 4 to slow prober
                             )
                         )
@@ -548,7 +551,7 @@ class BaseTarpit:
                                     conn_info,
                                     comment=dataclasses.asdict(result),
                                 )
-                            tarpit_writer = BaseTarpit.TarpitWriter(
+                            tarpit_writer = BaseTarpit.Writer(
                                 self._config.rate_limit, writer=writer
                             )
                             await real_handler(reader, tarpit_writer)
@@ -607,7 +610,7 @@ class BaseTarpit:
         **options can be used to pass argument
         """
         self.logger = logging.getLogger(__name__)
-        self._config: RuntimeConfig = self.RuntimeConfig()  # type: ignore  # noqa: F821
+        self._config: BaseTarpit.RuntimeConfig = self.RuntimeConfig()
         # Use self.RuntimeConfig() here, so subclass can impl their own
 
         self._config.update_from_dict(config)
@@ -615,20 +618,27 @@ class BaseTarpit:
             "server config: {}".format(self._config), dataclasses.asdict(self._config)
         )
         self.sem = asyncio.Semaphore(self._config.max_clients)
+
+        # setup client_trace
         if self._config.client_trace:
             self.client_trace_logger = logging.getLogger(__name__ + ".client_trace")
+            self._log_connection_info = self._internal_log_connection_info
         else:
 
             def _log_void(*args, **kwargs):
                 pass
 
-            self._log_connection_info = _log_void  # type: ignore
-        if not self._config.client_examine:
+            self._log_connection_info = _log_void
+
+        # setup client_examine
+        if self._config.client_examine:
+            self._client_examine = self._internal_client_examine
+        else:
 
             async def _void(*args, **kwargs):
                 pass
 
-            self._client_examine = _void  # type: ignore
+            self._client_examine = _void
         self._setup()
 
 
@@ -636,7 +646,7 @@ class EchoTarpit(BaseTarpit):
     PATTERN_NAME: str = "_internal_echo"
     _client_examine = BaseTarpit._client_examine_empty
 
-    async def _real_handler(self, reader, writer: BaseTarpit.TarpitWriter):
+    async def _real_handler(self, reader, writer: BaseTarpit.Writer):
         """
         Callback for providing service
 
@@ -668,7 +678,7 @@ class EndlessBannerTarpit(BaseTarpit):
     # displayed, control character filtering, as discussed in [SSH-ARCH],
     # SHOULD be used.  The primary use of this feature is to allow TCP-
     # wrappers to display an error message before disconnecting.
-    async def _real_handler(self, reader, writer: BaseTarpit.TarpitWriter):
+    async def _real_handler(self, reader, writer: BaseTarpit.Writer):
         while True:
             await writer.write_and_drain(b"%x\r\n" % random.randint(0, 2**32))
 
@@ -688,7 +698,7 @@ class EgshAminoasTarpit(BaseTarpit):
     _aminocese_cache: list = []
 
     # cSpell:enable
-    async def _real_handler(self, reader, writer: BaseTarpit.TarpitWriter):
+    async def _real_handler(self, reader, writer: BaseTarpit.Writer):
         while True:
             a = random.choice(self._aminocese_cache)
             header = a.encode() + b"\r\n"
@@ -758,7 +768,7 @@ class HttpTarpit(BaseTarpit):
             self.writer.close()
             await self.writer.wait_closed()
 
-        def __init__(self, reader, writer: BaseTarpit.TarpitWriter) -> None:
+        def __init__(self, reader, writer: BaseTarpit.Writer) -> None:
             self.reader = reader
             self.writer = writer
             self.send_raw = writer.write_and_drain
@@ -781,7 +791,7 @@ class HttpTarpit(BaseTarpit):
     async def _http_handler(self, connection: Connection):
         pass
 
-    async def _real_handler(self, reader, writer: BaseTarpit.TarpitWriter):
+    async def _real_handler(self, reader, writer: BaseTarpit.Writer):
         conn = HttpTarpit.Connection(reader, writer)
         await self._http_handler(conn)
         pass
@@ -889,7 +899,9 @@ class HttpDeflateTarpit(HttpPreGeneratedTarpit):
 
     def _generate_content(self):
         self._deflate_content = b""
-        self.compression_type = self._config.compression_type
+        self.compression_type = (
+            self._config.compression_type
+        )  # pytype: disable=attribute-error
         match self.compression_type:
             case "gzip":
                 compressobj = zlib.compressobj(level=9, wbits=31)
@@ -1073,7 +1085,7 @@ class SshTransHoldTarpit(SshTarpit):
             "682e636f6d2c7a6c696200000000000000000000000000"
         )
 
-    async def _real_handler(self, reader, writer: BaseTarpit.TarpitWriter):
+    async def _real_handler(self, reader, writer: BaseTarpit.Writer):
         # later_rate = writer.rate
         # if writer.rate < 128:
         # Change to a faster rate to send the KEX handshake
@@ -1108,7 +1120,7 @@ class SshTransHoldTarpit(SshTarpit):
 class EndlessSshTarpit(SshTarpit):
     PATTERN_NAME: str = "endlessh"
 
-    async def _real_handler(self, reader, writer: BaseTarpit.TarpitWriter):
+    async def _real_handler(self, reader, writer: BaseTarpit.Writer):
         while True:
             await writer.write_and_drain(b"%x\r\n" % random.randint(0, 2**32))
 
@@ -1178,7 +1190,7 @@ class TlsHelloRequestTarpit(TlsTarpit):
         h = cls.make_handshake_frag(cls.TlsHandshakeType.HELLO_REQUEST, b"")
         return cls.make_record(cls.TlsRecordContentType.HANDSHAKE, h)
 
-    async def _real_handler(self, reader, writer: BaseTarpit.TarpitWriter):
+    async def _real_handler(self, reader, writer: BaseTarpit.Writer):
         while True:
             packet = self.make_hello_request_record()
             await writer.write_and_drain(packet)
@@ -1242,7 +1254,7 @@ class TlsSlowHelloTarpit(TlsTarpit):
         )
         return cls.make_record(cls.TlsRecordContentType.HANDSHAKE, h)
 
-    async def _real_handler(self, reader, writer: BaseTarpit.TarpitWriter):
+    async def _real_handler(self, reader, writer: BaseTarpit.Writer):
         while True:
             packet = self.make_hello_request_record()
             await writer.write_and_drain(packet)
@@ -1366,10 +1378,9 @@ def run_from_config_dict(config: dict):
         except KeyError:
             pass
 
-        pit: BaseTarpit
-
         tarpit_classes: list[BaseTarpit] = get_all_subclasses(BaseTarpit)
-        available_tarpits: dict[str, BaseTarpit] = {}
+        available_tarpits: dict[str, typing.Any] = {}
+        # set this to dict[str,BaseTarpit] will make mypy complain
 
         for c in tarpit_classes:
             if c.PATTERN_NAME != "_internal_base_tarpit":
@@ -1377,7 +1388,9 @@ def run_from_config_dict(config: dict):
                 logging.debug("discovered tarpit pattern: %s", c.PATTERN_NAME)
 
         if available_tarpits.get(tarpit_config["pattern"]):
-            pit = available_tarpits.get(tarpit_config["pattern"])(**real_tarpit_conf)  # type: ignore
+            pit: BaseTarpit = available_tarpits[tarpit_config["pattern"]](
+                **real_tarpit_conf
+            )
         else:
             print("pattern %s is not exist!", tarpit_config["pattern"])
             exit()
