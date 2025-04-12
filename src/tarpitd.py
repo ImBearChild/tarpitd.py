@@ -355,7 +355,8 @@ class BaseTarpit:
     This class should not be used directly.
     """
 
-    PATTERN_NAME: str = "_internal_base_tarpit"
+    PATTERN_NAME: str = "_base_tarpit"
+    
 
     @dataclasses.dataclass
     class ClientLogConnectionInfo:
@@ -366,7 +367,7 @@ class BaseTarpit:
 
     # Todo
     @dataclasses.dataclass
-    class ClientExamineResult:
+    class ClientExamResult:
         expected: bool = False
         examined_data: bytes = b""
         comment: str | None = None
@@ -468,13 +469,31 @@ class BaseTarpit:
         """
         return
 
-    def _internal_log_connection_info(
-        self, event, conn_info: ClientLogConnectionInfo, comment=None
-    ):
+    async def _real_handler(self, reader, writer: Writer):
         """
-        Will be set to self._log_connection_info!
-        Make this private since this should not be
+        Callback for providing service
+
+        Classes that inherit this Class SHOULD overload this method.
+        This method should close connection when necessary.
         """
+        raise NotImplementedError
+
+    async def _internal_exam_client(
+        self, reader: asyncio.StreamReader, writer: Writer | None
+    ) -> ClientExamResult:
+        """
+        Callback for checking client
+
+        Classes that inherit this Class SHOULD overload this method.
+        """
+        raise NotImplementedError
+
+    def _internal_log_client(
+        self, writer: asyncio.StreamWriter, event: str, conn_info, comment=None
+    ) -> None:
+        peername = writer.get_extra_info("peername")
+        conn_info.remote_addr = peername[0]
+        conn_info.remote_port = peername[1]
         self.client_trace_logger.info(
             json.dumps(
                 {
@@ -488,33 +507,15 @@ class BaseTarpit:
                 cls=BaseTarpit.BytesLiteralEncoder,
             )
         )
+        pass
 
-    async def _real_handler(self, reader, writer: Writer):
-        """
-        Callback for providing service
-
-        Classes that inherit this Class SHOULD overload this method.
-        This method should close connection when necessary.
-        """
-        raise NotImplementedError
-
-    async def _internal_client_examine(
-        self, reader: asyncio.StreamReader, writer: Writer | None
-    ) -> ClientExamineResult:
-        """
-        Callback for checking client
-
-        Classes that inherit this Class SHOULD overload this method.
-        """
-        raise NotImplementedError
-
-    async def _client_examine_empty(self, *args, **kwargs) -> ClientExamineResult:
+    async def _client_exam_empty(self, *args, **kwargs) -> ClientExamResult:
         """
         Return ClientExamineResult to pass exam
 
         Classes that inherit this Class SHOULD NOT verload this method.
         """
-        return self.ClientExamineResult(expected=True)
+        return self.ClientExamResult(expected=True)
 
     def wrap_handler(
         self,
@@ -530,34 +531,31 @@ class BaseTarpit:
             async with self.sem:
                 try:
                     try:
-                        peername = writer.get_extra_info("peername")
-                        conn_info.remote_addr = peername[0]
-                        conn_info.remote_port = peername[1]
-                        self._log_connection_info(
-                            "open",
-                            conn_info,
-                        )
-                        result: BaseTarpit.ClientExamineResult = (
-                            await self._client_examine(
-                                reader=reader,
-                                writer=BaseTarpit.Writer(32, writer=writer),
-                                # Hardcode a rate of 4 to slow prober
-                            )
+                        self._log_client(writer, "open", conn_info)
+                        tarpit_writer = BaseTarpit.Writer(32, writer=writer)
+                        result: (
+                            BaseTarpit.ClientExamResult | None
+                        ) = await self._exam_client(
+                            reader=reader,
+                            writer=tarpit_writer,
+                            # Hardcode a rate of 32 to make nmap happy
                         )
                         if result is None or result.expected:
                             if result is not None:
-                                self._log_connection_info(
-                                    "examine",
+                                self._log_client(
+                                    writer,
+                                    "exam",
                                     conn_info,
                                     comment=dataclasses.asdict(result),
                                 )
-                            tarpit_writer = BaseTarpit.Writer(
-                                self._config.rate_limit, writer=writer
-                            )
+                            tarpit_writer.change_rate_limit(self._config.rate_limit)
                             await real_handler(reader, tarpit_writer)
                         else:
-                            self._log_connection_info(
-                                "examine", conn_info, comment=dataclasses.asdict(result)
+                            self._log_client(
+                                writer,
+                                "exam",
+                                conn_info,
+                                comment=dataclasses.asdict(result),
                             )
                             writer.close()
                             await asyncio.sleep(random.randrange(16, 32))
@@ -567,11 +565,11 @@ class BaseTarpit:
                         ConnectionAbortedError,
                         ConnectionResetError,
                     ) as e:
-                        self._log_connection_info(
-                            "conn_error", conn_info, comment={"err": str(e)}
+                        self._log_client(
+                            writer, "conn_error", conn_info, comment={"err": str(e)}
                         )
                     finally:
-                        self._log_connection_info("close", conn_info)
+                        self._log_client(writer, "close", conn_info)
                 except Exception as e:
                     self.logger.exception(e)
 
@@ -619,32 +617,32 @@ class BaseTarpit:
         )
         self.sem = asyncio.Semaphore(self._config.max_clients)
 
+        def _void(*args, **kwargs):
+            pass
+
+        async def _void_async(*args, **kwargs):
+            pass
+
         # setup client_trace
         if self._config.client_trace:
             self.client_trace_logger = logging.getLogger(__name__ + ".client_trace")
-            self._log_connection_info = self._internal_log_connection_info
+            self._log_client = self._internal_log_client
+
+            self._log_client = self._internal_log_client
         else:
-
-            def _log_void(*args, **kwargs):
-                pass
-
-            self._log_connection_info = _log_void
+            self._log_client = _void
 
         # setup client_examine
         if self._config.client_examine:
-            self._client_examine = self._internal_client_examine
+            self._exam_client = self._internal_exam_client
         else:
-
-            async def _void(*args, **kwargs):
-                pass
-
-            self._client_examine = _void
+            self._exam_client = _void_async
         self._setup()
 
 
 class EchoTarpit(BaseTarpit):
     PATTERN_NAME: str = "_internal_echo"
-    _client_examine = BaseTarpit._client_examine_empty
+    _internal_exam_client = BaseTarpit._client_exam_empty
 
     async def _real_handler(self, reader, writer: BaseTarpit.Writer):
         """
@@ -666,7 +664,7 @@ class EchoTarpit(BaseTarpit):
 
 class EndlessBannerTarpit(BaseTarpit):
     PATTERN_NAME: str = "endless_banner"
-    _client_examine = BaseTarpit._client_examine_empty
+    _internal_exam_client = BaseTarpit._client_exam_empty
     # For SSH
 
     # The server MAY send other lines of data before sending the version
@@ -776,17 +774,17 @@ class HttpTarpit(BaseTarpit):
 
         pass
 
-    async def _client_examine(
+    async def _internal_exam_client(
         self, reader: asyncio.StreamReader, writer
-    ) -> BaseTarpit.ClientExamineResult:
+    ) -> BaseTarpit.ClientExamResult:
         data = await reader.readexactly(4)
         http_methods = [b"GET ", b"POST", b"HEAD"]
 
         for method in http_methods:
             if data.startswith(method):
-                return self.ClientExamineResult(expected=True, examined_data=data)
+                return self.ClientExamResult(expected=True, examined_data=data)
 
-        return self.ClientExamineResult(expected=False, examined_data=data)
+        return self.ClientExamResult(expected=False, examined_data=data)
 
     async def _http_handler(self, connection: Connection):
         pass
@@ -900,8 +898,8 @@ class HttpDeflateTarpit(HttpPreGeneratedTarpit):
     def _generate_content(self):
         self._deflate_content = b""
         self.compression_type = (
-            self._config.compression_type
-        )  # pytype: disable=attribute-error
+            self._config.compression_type  # pytype: disable=attribute-error
+        )
         match self.compression_type:
             case "gzip":
                 compressobj = zlib.compressobj(level=9, wbits=31)
@@ -972,20 +970,20 @@ class SshTarpit(BaseTarpit):
     # pretend to be ubuntu
     # see: https://svn.nmap.org/nmap/nmap-service-probes
 
-    async def _client_examine(
+    async def _internal_exam_client(
         self, reader: asyncio.StreamReader, writer
-    ) -> BaseTarpit.ClientExamineResult:
+    ) -> BaseTarpit.ClientExamResult:
         try:
             data = await asyncio.wait_for(reader.read(4), 1)
             if data.startswith(b"SSH-"):
                 # Do not send banner since inner handler will do it
-                return self.ClientExamineResult(expected=True, examined_data=data)
+                return self.ClientExamResult(expected=True, examined_data=data)
             else:
-                return self.ClientExamineResult(expected=False, examined_data=data)
+                return self.ClientExamResult(expected=False, examined_data=data)
         except asyncio.TimeoutError:
             # Send banner to deal with null probing (nmap)
             await writer.write_and_drain(self.SSH_VERSION_STRING)
-            return self.ClientExamineResult(
+            return self.ClientExamResult(
                 expected=False, examined_data=b"", comment="null probing"
             )
 
@@ -1128,14 +1126,14 @@ class EndlessSshTarpit(SshTarpit):
 class TlsTarpit(BaseTarpit):
     PROTOCOL_VERSION_MAGIC = b"\x03\x03"  # TLS 1.2, also apply to 1.3
 
-    async def _client_examine(
+    async def _internal_exam_client(
         self, reader: asyncio.StreamReader, writer
-    ) -> BaseTarpit.ClientExamineResult:
+    ) -> BaseTarpit.ClientExamResult:
         data = await reader.read(3)
         if data.startswith(b"\x16\x03\x03"):
-            return self.ClientExamineResult(expected=True, examined_data=data)
+            return self.ClientExamResult(expected=True, examined_data=data)
 
-        return self.ClientExamineResult(expected=False, examined_data=data)
+        return self.ClientExamResult(expected=False, examined_data=data)
 
     # See: TLS 1.2 RFC ttps://www.rfc-editor.org/rfc/rfc5246#page-15
     class TlsRecordContentType(enum.IntEnum):
@@ -1383,7 +1381,7 @@ def run_from_config_dict(config: dict):
         # set this to dict[str,BaseTarpit] will make mypy complain
 
         for c in tarpit_classes:
-            if c.PATTERN_NAME != "_internal_base_tarpit":
+            if c.PATTERN_NAME != BaseTarpit.PATTERN_NAME:
                 available_tarpits.update({c.PATTERN_NAME: c})
                 logging.debug("discovered tarpit pattern: %s", c.PATTERN_NAME)
 
@@ -1461,7 +1459,7 @@ def main_cli():
 
     parser.add_argument(
         "-e",
-        "--examine-client",
+        "--examine-client", # Verify?
         help="check the client before sending data",
         const="check",
         nargs="?",
