@@ -25,22 +25,22 @@ The name of PATTERN is case-insensitive. For a complete list of supported patter
 
 #### `-r RATE, --rate-limit RATE`
 
-Set data transfer rate limit.
+Set data transfer rate limit. Tarpits pattern has their own defalut value.
 
-A positive value limits the transfer speed to RATE *bytes* per second.  
+A positive value limits the transfer speed to RATE *bytes* per second. 
 A negative value causes the program to send one byte every |RATE| seconds (effectively 1/|RATE| *bytes* per second).
 
 #### `-t, --trace-client [FILE]`
 
-Log client access to FILE.
+Log client access to FILE. Disabled by default.
 
 The output is in jsonl format. Logs to stdout if FILE is left blank.
 
-#### `-e, --examine-client [{check}]`
+#### `-e, --validate-client [{check, none}]`
 
-Examine the client before sending a response.
+Examine the client before sending a response. Enabled by default. Use `-e none` to disable it.
 
-The current implementation checks the first few bytes of the request to confirm that the client is using the corresponding protocol.
+The current implementation checks the first few bytes of the request to confirm that the client is using the corresponding protocol. 
 
 #### `--manual MANUAL`
 
@@ -148,16 +148,6 @@ Start two different HTTP tarpit services concurrently
 
     tarpitd.py -s http_deflate_html_bomb:127.0.0.1:8080 \
                   HTTP_ENDLESS_COOKIE:0.0.0.0:8088 
-
-## KNOWN ISSUE
-
-### CONNECTION RESET
-
-Clients may face a connection reset when tarpitd.py sends a lot of data and then closes the connection before the client has received all of it.
-
-The root of this problem is not clear, as tarpitd.py will wait until all data is written to the socket before closing it. Therefore, if a client has not received all the data, tarpitd.py will not close the connection.
-
-“A lot” in this context means that only `http_deflate_size_bomb` with high or no rate limit, and set `max_client` to a relatively low value, will face this problem. However, since the use of a rate limit is highly recommended (and enabled by default), it should not affect our main use case.
 
 ## AUTHOR
 

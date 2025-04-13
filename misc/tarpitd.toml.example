@@ -1,29 +1,26 @@
 [tarpits]
 [tarpits.my_cool_ssh_tarpit]
 pattern = "ssh_trans_hold"
-client_examine = True
-max_clients = 128 
+client_examine = true
+max_clients = 8152
 rate_limit = -2
 bind = [{ host = "127.0.0.1", port = "2222" }]
 
 [tarpits.http_tarpit]
 pattern = "http_deflate_html_bomb"
-rate_limit = 4096
 bind = [
   { host = "127.0.0.1", port = "8080" },
-  { host = "::1", port = "8080" },
-  { host = "127.0.0.1", port = "8888" },
+  { host = "::1", port = "8888" },
 ]
 
 [tarpits.tls_tarpit]
 pattern = "tls_endless_hello_request"
 rate_limit = 1
+client_trace = false
 bind = [
   { host = "127.0.0.1", port = "8443" },
   { host = "127.0.0.1", port = "6697" },
 ]
 
-[client_trace]
-enable   = true
-file = "./client_trace.log"
-stdout   = true
+[logging]
+client_trace = "./client_trace.log"
