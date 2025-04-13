@@ -136,11 +136,11 @@
 <p><em>Example: Run an SSH tarpit (in endlessh mode) on port 2222 of your machine:</em></p>
 <pre><code class="language-bash">tarpitd.py -s endlessh:0.0.0.0:2222
 </code></pre>
-<p>This setup is effective for defending against SSH brute-force attacks by forcing attackers to spend much longer time on each connection, increasing the likelihood they will be detected and blocked.</p>
+<p>This setup is effective for defending against SSH brute-force attacks by forcing attackers to spend much longer time on each connection, decreasing the resource they can spend on real SSH daemon.</p>
 <h3 id="thwarting-automated-http-scanning-and-crawling">Thwarting Automated HTTP Scanning and Crawling</h3>
 <p>Automated tools and crawlers are often used to scan for vulnerabilities and harvest content. </p>
-<p>For HTTP services, you can launch a tarpit pattern that  an endless stream of HTTP headers. This forces scanning tools and crawlers to wait, drastically reducing their efficiency. </p>
-<p>For clients connecting via HTTPS/TLS, you can use one of tarpitd.py’s TLS pattern – such as sending an endless sequence of HelloRequest messages. In this mode, connected TLS clients (for example, those using OpenSSL for testing or scanning) will eventually time out or declare handshake failures due to prolonged waiting.</p>
+<p>For HTTP services, you can launch a tarpit pattern that sends an endless stream of HTTP headers. This forces scanning tools and crawlers to wait, drastically reducing their efficiency. </p>
+<p>For clients connecting via HTTPS/TLS, you can use one of tarpitd.py’s TLS pattern – such as sending a ServerHello messages slowly. In this mode, connected TLS clients (for example, those using OpenSSL for testing or scanning) will eventually time out or declare handshake failures due to prolonged waiting.</p>
 <p>tarpitd.py allows you to launch multiple services in a single command, each using a different pattern, listening on different addresses and ports.</p>
 <p><em>Example 1: Run both an HTTP tarpit and an TLS tarpit concurrently:</em></p>
 <pre><code class="language-bash">tarpitd.py -r -2 -s HTTP_ENDLESS_COOKIE:0.0.0.0:8088 -s tls_slow_hello:127.0.0.1:8443
@@ -158,37 +158,34 @@
 <pre><code class="language-toml">[tarpits]
 [tarpits.my_cool_ssh_tarpit]
 pattern = &quot;ssh_trans_hold&quot;
-client_examine = True
-max_clients = 128 
+client_trace=  true
+client_valiation=  true 
+max_clients = 8152
 rate_limit = -2
 bind = [{ host = &quot;127.0.0.1&quot;, port = &quot;2222&quot; }]
 
 [tarpits.http_tarpit]
-pattern = &quot;http_deflate_html_bomb&quot;
-rate_limit = 4096
+pattern = &quot;HTTP_ENDLESS_COOKIE&quot;
 bind = [
   { host = &quot;127.0.0.1&quot;, port = &quot;8080&quot; },
-  { host = &quot;127.0.0.1&quot;, port = &quot;8000&quot; },
+  { host = &quot;::1&quot;, port = &quot;8888&quot; },
 ]
 
 [tarpits.tls_tarpit]
-pattern = &quot;tls_endless_hello_request&quot;
+pattern = &quot;tls_slow_hello&quot;
 rate_limit = 1
 bind = [
   { host = &quot;127.0.0.1&quot;, port = &quot;8443&quot; },
-  { host = &quot;127.0.0.1&quot;, port = &quot;6697&quot; },
 ]
 
-[client_trace]
-enable   = true
-file = &quot;./client_trace.log&quot;
-stdout   = false
+[logging]
+client_trace = &quot;./client_trace.log&quot;
 </code></pre>
 <p>In this configuration:</p>
 <ul>
 <li>Each tarpit service (e.g., my_cool_ssh_tarpit, http_tarpit, tls_tarpit) is defined with its own settings.</li>
 <li>You can customize the bind addresses (host and port), rate limits, client examination, and maximum connection limits individually.</li>
-<li>The global [client_trace] section allows you to log connection details for future analysis.</li>
+<li>The global [logging] section allows you to log connection details for future analysis.</li>
 </ul>
 <p>Save it to <code>conf.toml</code>. And run tarpitd.py with it. </p>
 <pre><code>tarpitd.py -c ./conf.toml

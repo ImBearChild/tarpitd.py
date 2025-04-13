@@ -121,7 +121,11 @@
               <ul class="nav flex-column">
               </ul>
             </li>
-            <li class="nav-item" data-bs-level="2"><a href="#why-not-use-original-endlessh" class="nav-link">Why not use original endlessh?</a>
+            <li class="nav-item" data-bs-level="2"><a href="#why-not-use-the-original-endlessh" class="nav-link">Why not use the original endlessh?</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#what-is-null-probing" class="nav-link">What is null probing?</a>
               <ul class="nav flex-column">
               </ul>
             </li>
@@ -160,13 +164,20 @@ With this bomb pre-generated, the only thing needs to do is sending the response
 </ul>
 <p>In many cases, a tarpit not only conserves resources on the defending side but also imposes greater computational and time costs on the attacker. For example, if the attacker attempts to parse the malicious HTML bomb, they may expend significantly more time and resources than the defender did to generate it. Likewise, if an attacker is solely interested in receiving HTTP headers, the defender’s effort to generate a tarpit response may effectively waste the attacker’s time.</p>
 <h2 id="is-it-secure">Is it secure?</h2>
-<p>Almost yes. tarpitd.py will not read from client, except a few bytes to make sure the client is running corresponding protocol, so there is nothing to crack. tarpit.py checks client by default, because send an HTTP response to SSH client is pointless, and it helps when facing null probing. This feature can be turned off as desired.</p>
-<h2 id="why-not-use-original-endlessh">Why not use original endlessh?</h2>
-<p>Because the author of endlessh said:</p>
+<p>Almost. tarpitd.py does not read from the client—except for a few bytes to verify that the client is using the correct protocol—so there is nothing for an attacker to crack. By default, tarpitd.py checks the client because sending an HTTP response to an SSH client is pointless, and it helps prevent null probing. This feature can be disabled if desired.</p>
+<p><em>well, technically,</em> in some cases tarpitd.py may read the client's request, but it does not parse it; it simply drops the data upon arrival. Reading from the client ensures that we close the TCP connection after the client, rather than before. Not all tarpit patterns include reading; for example, those employing the "endless" approach do not read.</p>
+<h2 id="why-not-use-the-original-endlessh">Why not use the original endlessh?</h2>
+<p>Because the author of endlessh stated:</p>
 <blockquote>
 <p>Parting exercise for the reader: Using the examples above as a starting point, implement an SMTP tarpit using asyncio. Bonus points for using TLS connections and testing it against real spammers.</p>
 </blockquote>
-<p>So this is what I make for exercise.</p></div>
+<p>Thus, this implementation was developed as an exercise.</p>
+<h2 id="what-is-null-probing">What is null probing?</h2>
+<p>From <em><a href="https://nmap.org/book/vscan-technique.html">Nmap Network Scanning</a></em>:</p>
+<blockquote>
+<p>Once the TCP connection is made, Nmap listens for roughly five seconds. Many common services, including most FTP, SSH, SMTP, Telnet, POP3, and IMAP servers, identify themselves in an initial welcome banner. Nmap refers to this as the “NULL probe” because Nmap just listens for responses without sending any probe data.</p>
+</blockquote>
+<p>Nmap is not the only prober that uses this technique. In some places, it is also referred to as banner grabbing. This is why the original endlessh failed to trick scanners—it sends a random string, so no probe identifies it as SSH.</p></div>
             </div>
         </div>
 

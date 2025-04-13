@@ -114,7 +114,7 @@
               </ul>
             </li>
             
-            <li class="nav-item" data-bs-level="2"><a href="#client_trace-table" class="nav-link">[client_trace] Table</a>
+            <li class="nav-item" data-bs-level="2"><a href="#logging-table" class="nav-link">[logging] Table</a>
               <ul class="nav flex-column">
               </ul>
             </li>
@@ -144,54 +144,55 @@
 <h4 id="pattern-str"><code>pattern=</code> (str)</h4>
 <p>Specifies the tarpit pattern.</p>
 <p>The name of the pattern is case-insensitive. For a complete list of supported patterns, see <a href="../tarpitd.py.1/">tarpit.py(1)</a>.</p>
-<h4 id="rate_limit-int"><code>rate_limit=</code> (int)</h4>
-<p>Sets the data transfer rate limit.</p>
-<p>Follows the same rule as <a href="../tarpitd.py.1/">tarpit.py(1)</a>.</p>
 <h4 id="bind-table"><code>bind=</code> (table)</h4>
 <p>A list of addresses and ports to listen on.</p>
 <p>Every item in this list should contain <code>host</code> and <code>port</code> values; see the example below.</p>
+<h4 id="rate_limit-int"><code>rate_limit=</code> (int)</h4>
+<p>Sets the data transfer rate limit.</p>
+<p>Follows the same rule as <a href="../tarpitd.py.1/">tarpit.py(1)</a>.</p>
 <h4 id="max_clients-int"><code>max_clients=</code> (int)</h4>
 <p>The maximum number of clients the server will handle. This is calculated per bind port.</p>
-<h4 id="client_examine-bool"><code>client_examine</code> (bool)</h4>
-<p>Examine the client before sending a response.</p>
-<h2 id="client_trace-table"><code>[client_trace]</code> Table</h2>
-<h4 id="enable-bool"><code>enable=</code> (bool)</h4>
-<p>Enable logging of client access.</p>
-<h4 id="stdout-bool"><code>stdout=</code> (bool)</h4>
-<p>Output the client trace log to stdout (if client_trace is enabled).</p>
-<p>Note: Normal runtime logs are printed to stderr. This behavior is hard-coded. Please use a service manager or shell redirection if you want to save the log file.</p>
-<h4 id="file-str"><code>file=</code> (str)</h4>
-<p>Path to the client_trace log file.</p>
+<h4 id="client_valiation-bool"><code>client_valiation=</code> (bool)</h4>
+<p>Validate the client before sending a response. </p>
+<h4 id="client_trace-bool"><code>client_trace=</code> (bool)</h4>
+<p>Enable logging of client access. Client validation result is logged with access log.</p>
+<h2 id="logging-table"><code>[logging]</code> Table</h2>
+<!--
+#### `main=` (str)
+
+Path to the main log file. Sepcial value `<stdout>` and `<stderr>` is supported.
+
+Default is `<stderr>`.
+-->
+<h4 id="client_trace-str"><code>client_trace=</code> (str)</h4>
+<p>Path to the client_trace log file. Sepcial value <code>&lt;stdout&gt;</code> and <code>&lt;stderr&gt;</code> is supported.</p>
+<p>Default is <code>&lt;stdout&gt;</code>.</p>
 <h2 id="example">Example</h2>
 <pre><code class="language-toml">[tarpits]
 [tarpits.my_cool_ssh_tarpit]
 pattern = &quot;ssh_trans_hold&quot;
-client_examine = true
-max_clients = 128 
+client_trace=  true
+client_valiation=  true 
+max_clients = 8152
 rate_limit = -2
 bind = [{ host = &quot;127.0.0.1&quot;, port = &quot;2222&quot; }]
 
 [tarpits.http_tarpit]
-pattern = &quot;http_deflate_html_bomb&quot;
-rate_limit = 4096
+pattern = &quot;HTTP_ENDLESS_COOKIE&quot;
 bind = [
   { host = &quot;127.0.0.1&quot;, port = &quot;8080&quot; },
-  { host = &quot;::1&quot;, port = &quot;8080&quot; },
-  { host = &quot;127.0.0.1&quot;, port = &quot;8888&quot; },
+  { host = &quot;::1&quot;, port = &quot;8888&quot; },
 ]
 
 [tarpits.tls_tarpit]
-pattern = &quot;tls_endless_hello_request&quot;
+pattern = &quot;tls_slow_hello&quot;
 rate_limit = 1
 bind = [
   { host = &quot;127.0.0.1&quot;, port = &quot;8443&quot; },
-  { host = &quot;127.0.0.1&quot;, port = &quot;6697&quot; },
 ]
 
-[client_trace]
-enable   = true
-file = &quot;./client_trace.log&quot;
-stdout   = true
+[logging]
+client_trace = &quot;./client_trace.log&quot;
 </code></pre>
 <h2 id="author">AUTHOR</h2>
 <p>Nianqing Yao [imbearchild at outlook.com]</p>

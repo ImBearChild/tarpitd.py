@@ -129,11 +129,6 @@
               </ul>
             </li>
             
-            <li class="nav-item" data-bs-level="2"><a href="#known-issue" class="nav-link">KNOWN ISSUE</a>
-              <ul class="nav flex-column">
-              </ul>
-            </li>
-            
             <li class="nav-item" data-bs-level="2"><a href="#author" class="nav-link">AUTHOR</a>
               <ul class="nav flex-column">
               </ul>
@@ -158,15 +153,15 @@
 <p>Start a tarpit pattern on the specified host and port.</p>
 <p>The name of PATTERN is case-insensitive. For a complete list of supported patterns, see the “TARPIT PATTERN” section below.</p>
 <h4 id="-r-rate-rate-limit-rate"><code>-r RATE, --rate-limit RATE</code></h4>
-<p>Set data transfer rate limit.</p>
-<p>A positive value limits the transfer speed to RATE <em>bytes</em> per second.<br />
+<p>Set data transfer rate limit. Tarpits pattern has their own defalut value.</p>
+<p>A positive value limits the transfer speed to RATE <em>bytes</em> per second. 
 A negative value causes the program to send one byte every |RATE| seconds (effectively 1/|RATE| <em>bytes</em> per second).</p>
 <h4 id="-t-trace-client-file"><code>-t, --trace-client [FILE]</code></h4>
-<p>Log client access to FILE.</p>
+<p>Log client access to FILE. Disabled by default.</p>
 <p>The output is in jsonl format. Logs to stdout if FILE is left blank.</p>
-<h4 id="-e-examine-client-check"><code>-e, --examine-client [{check}]</code></h4>
-<p>Examine the client before sending a response.</p>
-<p>The current implementation checks the first few bytes of the request to confirm that the client is using the corresponding protocol.</p>
+<h4 id="-e-validate-client-check-none"><code>-e, --validate-client [{check, none}]</code></h4>
+<p>Examine the client before sending a response. Enabled by default. Use <code>-e none</code> to disable it.</p>
+<p>The current implementation checks the first few bytes of the request to confirm that the client is using the corresponding protocol. </p>
 <h4 id="-manual-manual"><code>--manual MANUAL</code></h4>
 <p>Display the built-in manual page. By default, tarpitd.py will open <code>tarpitd.py.1</code>.</p>
 <p>Available manual pages include:</p>
@@ -229,11 +224,6 @@ A negative value causes the program to send one byte every |RATE| seconds (effec
 <pre><code>tarpitd.py -s http_deflate_html_bomb:127.0.0.1:8080 \
               HTTP_ENDLESS_COOKIE:0.0.0.0:8088
 </code></pre>
-<h2 id="known-issue">KNOWN ISSUE</h2>
-<h3 id="connection-reset">CONNECTION RESET</h3>
-<p>Clients may face a connection reset when tarpitd.py sends a lot of data and then closes the connection before the client has received all of it.</p>
-<p>The root of this problem is not clear, as tarpitd.py will wait until all data is written to the socket before closing it. Therefore, if a client has not received all the data, tarpitd.py will not close the connection.</p>
-<p>“A lot” in this context means that only <code>http_deflate_size_bomb</code> with high or no rate limit, and set <code>max_client</code> to a relatively low value, will face this problem. However, since the use of a rate limit is highly recommended (and enabled by default), it should not affect our main use case.</p>
 <h2 id="author">AUTHOR</h2>
 <p>Nianqing Yao [imbearchild at outlook.com]</p>
 <hr />
