@@ -356,7 +356,6 @@ class BaseTarpit:
     """
 
     PATTERN_NAME: str = "_base_tarpit"
-    
 
     @dataclasses.dataclass
     class ClientLogConnectionInfo:
@@ -365,7 +364,6 @@ class BaseTarpit:
         local_addr: str = ""
         local_port: int = 0
 
-    # Todo
     @dataclasses.dataclass
     class ClientExamResult:
         expected: bool = False
@@ -437,7 +435,7 @@ class BaseTarpit:
             await self.writer.drain()
 
         def change_rate_limit(self, rate: int):
-            logging.debug(f"rate limit: {rate}")
+            # logging.debug(f"rate limit: {rate}")
             self.rate = rate
             if rate == 0:
                 write_inner = self._write_normal
@@ -550,6 +548,10 @@ class BaseTarpit:
                                 )
                             tarpit_writer.change_rate_limit(self._config.rate_limit)
                             await real_handler(reader, tarpit_writer)
+                            await writer.drain()
+                            await asyncio.sleep(random.randrange(16, 32))
+                            writer.close()
+                            await writer.wait_closed()
                         else:
                             self._log_client(
                                 writer,
@@ -827,8 +829,7 @@ class HttpPreGeneratedTarpit(HttpTarpit):
         rate_limit: int = 128
         pass
 
-    @dataclasses.dataclass
-    class Content:
+    class Content(typing.NamedTuple):
         data: bytes
         type_: str = ""
         encoding: str = ""
@@ -1459,7 +1460,7 @@ def main_cli():
 
     parser.add_argument(
         "-e",
-        "--examine-client", # Verify?
+        "--examine-client",  # Verify?
         help="check the client before sending data",
         const="check",
         nargs="?",
@@ -1510,7 +1511,7 @@ def main_cli():
     if args.verbose >= 1:
         logger.setLevel(logging.DEBUG)
         formatter = logging.Formatter(
-            fmt="[%(levelname)-8s - %(asctime)s] [%(name)s - %(funcName)s - %(taskName)s - L%(lineno)d] %(message)s",
+            fmt="[%(levelname)-8s - %(asctime)s] [%(name)s - %(funcName)s] %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
         handler = logging.StreamHandler(sys.stderr)

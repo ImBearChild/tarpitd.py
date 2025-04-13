@@ -40,15 +40,12 @@ requires = ["hatch-mkdocs"]
 [tool.hatch.env.collectors.mkdocs.docs]
 path = "mkdocs.yml"
 
-[tool.hatch.envs.devtool]
-dependencies = [
-  "pytype"
-]
-[tool.hatch.envs.devtool.scripts]
-type = "pytype ./src/tarpitd.py"
+[tool.hatch.envs.dev]
+dependencies = ["pytype", "yappi"]
+python = "3.11"
 
-[[tool.hatch.envs.devtool.matrix]]
-python = ["3.11"]
+[tool.hatch.envs.dev.scripts]
+type = "pytype ./src/tarpitd.py"
 
 [tool.hatch.envs.hatch-test]
 default-args = ["src"]
@@ -56,8 +53,8 @@ default-args = ["src"]
 [[tool.hatch.envs.hatch-test.matrix]]
 python = ["3.11"]
 
-
 [tool.tombi]
+
 [tool.tombischema]
 enabled = true
 strict = false
