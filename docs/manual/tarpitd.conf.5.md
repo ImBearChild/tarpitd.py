@@ -65,31 +65,28 @@ Default is `<stdout>`.
 [tarpits]
 [tarpits.my_cool_ssh_tarpit]
 pattern = "ssh_trans_hold"
-client_examine = true
-max_clients = 128 
+client_trace = true
+client_valiation = true
+max_clients = 8152
 rate_limit = -2
 bind = [{ host = "127.0.0.1", port = "2222" }]
 
 [tarpits.http_tarpit]
-pattern = "http_deflate_html_bomb"
-rate_limit = 4096
+pattern = "HTTP_ENDLESS_COOKIE"
 bind = [
   { host = "127.0.0.1", port = "8080" },
-  { host = "::1", port = "8080" },
-  { host = "127.0.0.1", port = "8888" },
+  { host = "::1", port = "8888" },
 ]
 
 [tarpits.tls_tarpit]
-pattern = "tls_endless_hello_request"
+pattern = "tls_slow_hello"
 rate_limit = 1
-client_trace = True
 bind = [
   { host = "127.0.0.1", port = "8443" },
-  { host = "127.0.0.1", port = "6697" },
 ]
 
 [logging]
-client_trace = ./my_log.log
+client_trace = "./client_trace.log"
 ```
 
 ## AUTHOR
