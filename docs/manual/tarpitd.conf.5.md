@@ -20,41 +20,44 @@ Specifies the tarpit pattern.
 
 The name of the pattern is case-insensitive. For a complete list of supported patterns, see [tarpit.py(1)](./tarpitd.py.1.md).
 
-#### `rate_limit=` (int)
-
-Sets the data transfer rate limit.
-
-Follows the same rule as [tarpit.py(1)](./tarpitd.py.1.md).
-
 #### `bind=` (table)
 
 A list of addresses and ports to listen on.
 
 Every item in this list should contain `host` and `port` values; see the example below.
 
+#### `rate_limit=` (int)
+
+Sets the data transfer rate limit.
+
+Follows the same rule as [tarpit.py(1)](./tarpitd.py.1.md).
+
 #### `max_clients=` (int)
 
 The maximum number of clients the server will handle. This is calculated per bind port.
 
-#### `client_examine` (bool)
+#### `client_valiation=` (bool)
 
-Examine the client before sending a response.
+Validate the client before sending a response. 
 
-## `[client_trace]` Table
+#### `client_trace=` (bool)
 
-#### `enable=` (bool)
+Enable logging of client access. Client validation result is logged with access log.
 
-Enable logging of client access.
+## `[logging]` Table
+<!--
+#### `main=` (str)
 
-#### `stdout=` (bool)
+Path to the main log file. Sepcial value `<stdout>` and `<stderr>` is supported.
 
-Output the client trace log to stdout (if client_trace is enabled).
+Default is `<stderr>`.
+-->
+#### `client_trace=` (str)
 
-Note: Normal runtime logs are printed to stderr. This behavior is hard-coded. Please use a service manager or shell redirection if you want to save the log file.
+Path to the client_trace log file. Sepcial value `<stdout>` and `<stderr>` is supported.
 
-#### `file=` (str)
+Default is `<stdout>`.
 
-Path to the client_trace log file.
 
 ## Example
 
@@ -79,15 +82,14 @@ bind = [
 [tarpits.tls_tarpit]
 pattern = "tls_endless_hello_request"
 rate_limit = 1
+client_trace = True
 bind = [
   { host = "127.0.0.1", port = "8443" },
   { host = "127.0.0.1", port = "6697" },
 ]
 
-[client_trace]
-enable   = true
-file = "./client_trace.log"
-stdout   = true
+[logging]
+client_trace = ./my_log.log
 ```
 
 ## AUTHOR

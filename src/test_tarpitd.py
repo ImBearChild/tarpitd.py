@@ -2,6 +2,9 @@ import unittest
 import asyncio
 import tarpitd
 import time
+import typing
+import dataclasses
+
 
 class TestTarpit(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
@@ -33,20 +36,77 @@ class TestTarpit(unittest.IsolatedAsyncioTestCase):
         pass
 
 
-class TestEchoTarpit(TestTarpit):
-    def create_tarpit_obj(self):
-        return tarpitd.EchoTarpit(rate_limit=0, client_trace=True)
+class TarpitEntry(typing.NamedTuple):
+    port: int
+    server: asyncio.Server
 
-    async def test_response(self):
-        reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
-        writer.write(b"Aminoac\n")
+
+@dataclasses.dataclass
+class TarpitsBeTested:
+    default: TarpitEntry | None = None
+    without_verify: TarpitEntry | None = None
+
+class NeoTestTarpit(unittest.IsolatedAsyncioTestCase):
+    TARPIT = tarpitd.BaseTarpit
+    REQUEST = b""
+    REQUEST_INVALID = b"NO_TEST!!!"
+    CONFIG={'rate_limit':0}
+
+    async def setup_tarpit(self, **conf):
+        t = self.TARPIT()
+        t_server = await t.create_server("127.0.0.2", 0)
+        t_port = t_server.sockets[0].getsockname()[1]
+        return TarpitEntry(t_port, t_server)
+
+    async def asyncSetUp(self) -> None:
+        print("[TEST] set up test")
+        self.tarpits: TarpitsBeTested = TarpitsBeTested()
+        self.tarpits.default = await self.setup_tarpit(**self.CONFIG)
+
+        async with asyncio.TaskGroup() as tg:
+            for i in dataclasses.fields(self.tarpits):
+                if item := getattr(self.tarpits, i.name):
+                    tg.create_task(item.server.start_serving())
+        print("[TEST] set up done")
+
+    async def asyncTearDown(self):
+        print("[TEST] teardown test")
+        for i in dataclasses.fields(self.tarpits):
+            if item := getattr(self.tarpits, i.name):
+                item.server.close()
+                await item.server.wait_closed()
+        print("[TEST] teardown test done")
+
+    async def verify_response(self, reader: asyncio.StreamReader):
+        raise NotImplementedError
+
+    async def do_default_test(self):
+        port = self.tarpits.default.port
+        reader, writer = await asyncio.open_connection("127.0.0.2", port)
+        writer.write(self.REQUEST)
         await writer.drain()
-        p = await reader.readline()
-        self.assertEqual(p, b"Aminoac\n")
-        writer.close()
-        await writer.wait_closed()
-        self.addAsyncCleanup(self.on_cleanup)
+        await self.verify_response(reader)
         pass
+
+    async def test(self):
+        if self.__class__ is not NeoTestTarpit:
+            await self.do_default_test()
+
+
+class T_EchoTarpit(NeoTestTarpit):
+    TARPIT = tarpitd.EchoTarpit
+    REQUEST = b"TEST\n"
+
+    async def verify_response(self, reader: asyncio.StreamReader):
+        self.assertEqual(await reader.readline(), self.REQUEST)
+
+class T_HttpTarpit(NeoTestTarpit):
+    TARPIT = tarpitd.HttpOkTarpit
+    REQUEST = b"GET \n"
+
+    async def verify_response(self, reader: asyncio.StreamReader):
+        self.assertTrue((await reader.readline()).startswith(b"HTTP"))
+
 
 
 class TestRateLimitPositive(TestTarpit):
@@ -83,23 +143,6 @@ class TestRateLimitNegative(TestTarpit):
         writer.close()
         await writer.wait_closed()
         self.addAsyncCleanup(self.on_cleanup)
-
-
-class TestHttpOkTarpit(TestTarpit):
-    def create_tarpit_obj(self):
-        t = tarpitd.HttpOkTarpit(rate_limit=0)
-        return t
-
-    async def test_response(self):
-        reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
-        writer.write(b"GET ")
-        line = await reader.readline()
-        self.assertTrue(line.startswith(b"HTTP"))
-        await writer.drain()
-        writer.close()
-        await writer.wait_closed()
-        self.addAsyncCleanup(self.on_cleanup)
-
 
 class TestHttpTarpit(TestTarpit):
     def create_tarpit_obj(self):
@@ -187,6 +230,7 @@ class TestTlsTarpit(TestTarpit):
         writer.close()
         await writer.wait_closed()
         self.addAsyncCleanup(self.on_cleanup)
+
 
 class TestTlsSlowHelloTarpit(TestTarpit):
     def create_tarpit_obj(self):
