@@ -72,38 +72,35 @@ Instead of relying solely on command-line options, you can configure tarpitd.py 
 [tarpits]
 [tarpits.my_cool_ssh_tarpit]
 pattern = "ssh_trans_hold"
-client_examine = True
-max_clients = 128 
+client_trace = true
+client_valiation = true
+max_clients = 8152
 rate_limit = -2
 bind = [{ host = "127.0.0.1", port = "2222" }]
 
 [tarpits.http_tarpit]
-pattern = "http_deflate_html_bomb"
-rate_limit = 4096
+pattern = "HTTP_ENDLESS_COOKIE"
 bind = [
   { host = "127.0.0.1", port = "8080" },
-  { host = "127.0.0.1", port = "8000" },
+  { host = "::1", port = "8888" },
 ]
 
 [tarpits.tls_tarpit]
-pattern = "tls_endless_hello_request"
+pattern = "tls_slow_hello"
 rate_limit = 1
 bind = [
   { host = "127.0.0.1", port = "8443" },
-  { host = "127.0.0.1", port = "6697" },
 ]
 
-[client_trace]
-enable   = true
-file = "./client_trace.log"
-stdout   = false
+[logging]
+client_trace = "./client_trace.log"
 ```
 
 In this configuration:
 
 * Each tarpit service (e.g., my_cool_ssh_tarpit, http_tarpit, tls_tarpit) is defined with its own settings.
 * You can customize the bind addresses (host and port), rate limits, client examination, and maximum connection limits individually.
-* The global [client_trace] section allows you to log connection details for future analysis.
+* The global [logging] section allows you to log connection details for future analysis.
 
 Save it to `conf.toml`. And run tarpitd.py with it. 
 

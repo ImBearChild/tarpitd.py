@@ -1,4 +1,8 @@
 site_name: tarpitd.py
+site_description: 
+  tarpitd.py is a lightweight, single-file network tarpit
+  tool that deliberately delays or disrupts client connections 
+  by sending slow or malformed responses.
 
 repo_url: https://github.com/ImBearChild/tarpitd.py/
 edit_uri: blob/master/docs/

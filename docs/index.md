@@ -19,7 +19,7 @@ It implements a variety of response patterns that emulate common Internet servic
 
 <div class="text-center">
 <a href="getting-started/" class="btn btn-primary" role="button">Getting Started</a>
-<a href="manual/" class="btn btn-primary" role="button">User Guide</a>
+<a href="manual/" class="btn btn-primary" role="button">User Manual</a>
 </div>
 
 <div class="pt-2 pb-4 px-4 my-4 bg-body-tertiary rounded-3">
@@ -63,9 +63,9 @@ It implements a variety of response patterns that emulate common Internet servic
   <div class="col-sm-6">
     <div class="card">
       <div class="card-body">
-        <h3 class="card-title">Client Examination</h3>
+        <h3 class="card-title">Client Verification</h3>
         <p class="card-text">
-            A standout feature of tarpitd.py is its ability to check client before sending response. It ensures that each client receives the appropriate reply, and enable the ability to trick <a href="https://nmap.org/book/vscan-technique.html">NULL probe</a>.
+            A standout feature of tarpitd.py is its ability to check client before sending response. It ensures that each client receives the appropriate reply, and enable the ability to trick <a href="./about/#what-is-null-probing">null probing</a>.
       </div>
     </div>
   </div>

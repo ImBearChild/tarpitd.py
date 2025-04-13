@@ -37,12 +37,22 @@ In many cases, a tarpit not only conserves resources on the defending side but a
 
 ## Is it secure?
 
-Almost yes. tarpitd.py will not read from client, except a few bytes to make sure the client is running corresponding protocol, so there is nothing to crack. tarpit.py checks client by default, because send an HTTP response to SSH client is pointless, and it helps when facing null probing. This feature can be turned off as desired.
+Almost. tarpitd.py does not read from the client—except for a few bytes to verify that the client is using the correct protocol—so there is nothing for an attacker to crack. By default, tarpitd.py checks the client because sending an HTTP response to an SSH client is pointless, and it helps prevent null probing. This feature can be disabled if desired.
 
-## Why not use original endlessh?
+*well, technically,* in some cases tarpitd.py may read the client's request, but it does not parse it; it simply drops the data upon arrival. Reading from the client ensures that we close the TCP connection after the client, rather than before. Not all tarpit patterns include reading; for example, those employing the "endless" approach do not read.
 
-Because the author of endlessh said:
+## Why not use the original endlessh?
+
+Because the author of endlessh stated:
 
 > Parting exercise for the reader: Using the examples above as a starting point, implement an SMTP tarpit using asyncio. Bonus points for using TLS connections and testing it against real spammers.
 
-So this is what I make for exercise.
+Thus, this implementation was developed as an exercise.
+
+## What is null probing?
+
+From *[Nmap Network Scanning](https://nmap.org/book/vscan-technique.html)*:
+
+> Once the TCP connection is made, Nmap listens for roughly five seconds. Many common services, including most FTP, SSH, SMTP, Telnet, POP3, and IMAP servers, identify themselves in an initial welcome banner. Nmap refers to this as the “NULL probe” because Nmap just listens for responses without sending any probe data.
+
+Nmap is not the only prober that uses this technique. In some places, it is also referred to as banner grabbing. This is why the original endlessh failed to trick scanners—it sends a random string, so no probe identifies it as SSH.
