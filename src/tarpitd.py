@@ -321,7 +321,6 @@ __version__ = "0.1.0"
 import asyncio
 import random
 import logging
-import types
 import enum
 import zlib
 import http
@@ -344,6 +343,7 @@ class BytesLiteralEncoder(json.JSONEncoder):
 class TarpitWriter:
     """
     Wraps a asyncio.StreamWriter, adding speed limit on it.
+    Do not have Writer.close(), since connection close should be handled outside
     """
 
     async def _write_with_interval(self, data):
@@ -402,42 +402,20 @@ class TarpitWriter:
         self.change_rate_limit(rate)
 
 
-class ClientValidatorResult(typing.NamedTuple):
-    expected: bool | None
-    data: bytes
-    comment: str | None = None
-    pass
-
-
-class ClientValidator:
-    async def validate(
-        self, reader: asyncio.StreamReader, writer: TarpitWriter
-    ) -> ClientValidatorResult:
-        return ClientValidatorResult(None, b"")
-
-
-class NullProbingClientValidator(ClientValidator):
-    def __init__(
-        self, verify_len, allow_head: list[bytes], prober_response=b"", timeout=2
-    ):
-        self.verify_len = verify_len
-        self.allow_head = allow_head
-        self.prober_response = prober_response
-        self.timeout = timeout
-
-    async def validate(self, reader: asyncio.StreamReader, writer: TarpitWriter):
-        try:
-            data = await asyncio.wait_for(reader.read(self.verify_len), self.timeout)
-            for head in self.allow_head:
-                if data.startswith(head):
-                    # Do not send banner since inner handler will do it
-                    return ClientValidatorResult(True, data)
-            return ClientValidatorResult(False, data)
-        except asyncio.TimeoutError:
-            # Send banner to deal with null probing (nmap)
-            await writer.write_and_drain(self.prober_response)
-            return ClientValidatorResult(False, data, "null probing")
+async def read_with_timeout(
+    stream_reader: asyncio.StreamReader, n: int, timeout: float
+) -> bytes:
+    data = bytearray()
+    try:
+        async with asyncio.timeout(timeout):
+            while len(data) < n:
+                chunk = await stream_reader.read(n - len(data))
+                if not chunk:
+                    break
+                data.extend(chunk)
+    except asyncio.TimeoutError:
         pass
+    return bytes(data)
 
 
 class BaseTarpit:
@@ -446,6 +424,33 @@ class BaseTarpit:
     """
 
     PATTERN_NAME: str = "_base_tarpit"
+
+    class ValidatorConfig(typing.NamedTuple):
+        head_allowlist: list[bytes] = []
+        timeout: float = 2
+        read_len: int = 4
+        banner: bytes = b""
+        response_failed: bytes = b""
+
+    class ValidatorSupportState(enum.Enum):
+        NO = 0
+        YES = 1
+        CUSTOM = 2
+
+    class ValidationResult(typing.NamedTuple):
+        expected: bool
+        data: bytes | None = None
+        comment: str | None = None
+        pass
+
+    ValidatorCallable = typing.Callable[
+        [asyncio.StreamReader, TarpitWriter],
+        typing.Awaitable[ValidationResult],
+    ]
+
+    _validator_support: ValidatorSupportState = ValidatorSupportState.NO
+    _validator_config: ValidatorConfig
+    _validator_custom_func: ValidatorCallable
 
     @dataclasses.dataclass
     class RuntimeConfig:
@@ -472,18 +477,52 @@ class BaseTarpit:
         Classes that inherit this Class can implement this method
         as an alternative to overloading __init__.
         """
+
+        if hasattr(super(), "_setup"):
+            super()._setup()
+            pass
+
         return
 
-    async def _real_handler(self, reader, writer: TarpitWriter):
+    async def _handle_client(self, reader: asyncio.StreamReader, writer: TarpitWriter):
         """
         Callback for providing service
 
         Classes that inherit this Class SHOULD overload this method.
-        This method should close connection when necessary.
+        This method SHOULD NOT close connection when necessary.
         """
         raise NotImplementedError
 
-    def _internal_log_client(
+    async def __validate_client(self, reader, writer):
+        conf = self._validator_config
+        await writer.write_and_drain(conf.banner)
+        data = await read_with_timeout(reader, conf.read_len, conf.timeout)
+        for head in conf.head_allowlist:
+            if data.startswith(head):
+                return self.ValidationResult(True, data)
+        await writer.write_and_drain(conf.response_failed)
+        return self.ValidationResult(False, data)
+
+    async def __fake_validate_client(self, reader, writer):
+        return self.ValidationResult(True)  # Data is none means skipped
+
+    # def _get_client_handler(
+    #     self,
+    # ) -> typing.Callable[
+    #     [asyncio.StreamReader, asyncio.StreamWriter, ClientValidationResult],
+    #     typing.Awaitable[None],
+    # ]:
+    #     raise NotImplementedError
+
+    # def _get_client_validator(
+    #     self,
+    # ) -> typing.Callable[
+    #     [asyncio.StreamReader, asyncio.StreamWriter],
+    #     typing.Awaitable[ClientValidationResult],
+    # ]:
+    #     raise NotImplementedError
+
+    def __log_client(
         self, writer: asyncio.StreamWriter, event: str, comment=None
     ) -> None:
         self.client_trace_logger.info(
@@ -504,58 +543,48 @@ class BaseTarpit:
         )
         pass
 
-    def get_default_validator(self) -> ClientValidator:
-        raise NotImplementedError
-
-    def wrap_handler(
-        self,
-        real_handler: types.FunctionType,
+    async def __handler(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ):
-        """
-        This closure is used to pass listening address and port to
-        handler running in asyncio
-        """
+        async with self.sem:
+            try:
+                self.__runtime_log_client(writer, "open")
+                tarpit_writer = TarpitWriter(32, writer=writer)
+                result = await self.__runtime_validate_client(reader, tarpit_writer)
+                if result.expected:  # Only log for passed check
+                    if result.data:
+                        self.__runtime_log_client(
+                            writer, "exam", comment=result._asdict()
+                        )
+                    tarpit_writer.change_rate_limit(self._config.rate_limit)
+                    await self._handle_client(reader, tarpit_writer)
+                    await writer.drain()
 
-        async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-            async with self.sem:
-                try:
-                    try:
-                        self._log_client(writer, "open")
-                        tarpit_writer = TarpitWriter(32, writer=writer)
-                        result = await self.validator.validate(reader, tarpit_writer)
-                        if result.expected is True or result.expected is None:
-                            if result.expected:  # Only log for passed check
-                                self._log_client(
-                                    writer, "exam", comment=result._asdict()
-                                )
-                            tarpit_writer.change_rate_limit(self._config.rate_limit)
-                            await real_handler(reader, tarpit_writer)
-                            await writer.drain()
+                    for i in range(4):  # 4 second timeout, 1 kb data
+                        try:
+                            if await asyncio.wait_for(reader.read(256), 1) == b"":
+                                break
+                        except asyncio.TimeoutError:
+                            pass
+                        pass
 
-                            for i in range(4):  # 4 second timeout, 1 kb data
-                                if await asyncio.wait_for(reader.read(256), 1) == b"":
-                                    break
-                                pass
-
-                            writer.close()
-                            await writer.wait_closed()
-                        else:
-                            self._log_client(writer, "exam", comment=result._asdict())
-                            writer.close()
-                            await asyncio.sleep(random.randrange(16, 32))
-                            await writer.wait_closed()
-                    except (  # Log client
-                        BrokenPipeError,
-                        ConnectionAbortedError,
-                        ConnectionResetError,
-                    ) as e:
-                        self._log_client(writer, "conn_error", comment={"err": str(e)})
-                    finally:
-                        self._log_client(writer, "close")
-                except Exception as e:
-                    self.logger.exception(e)
-
-        return handler
+                    writer.close()
+                    await writer.wait_closed()
+                else:
+                    self.__runtime_log_client(writer, "exam", comment=result._asdict())
+                    writer.close()
+                    await asyncio.sleep(random.randrange(16, 32))
+                    await writer.wait_closed()
+            except (  # Log client
+                BrokenPipeError,
+                ConnectionAbortedError,
+                ConnectionResetError,
+            ) as e:
+                self.__runtime_log_client(writer, "conn_error", comment={"err": str(e)})
+            except Exception as e:
+                self.logger.exception(e)
+            finally:
+                self.__runtime_log_client(writer, "close")
 
     async def create_server(self, host, port, start_serving=False):
         """
@@ -568,9 +597,7 @@ class BaseTarpit:
         Server.serve_forever() to make the server to start accepting connections.
         """
         server = await asyncio.start_server(
-            self.wrap_handler(
-                real_handler=self._real_handler,
-            ),
+            self.__handler,
             host=host,
             port=port,
             # limit=64,
@@ -587,6 +614,7 @@ class BaseTarpit:
         **options can be used to pass argument
         """
         self.logger = logging.getLogger(__name__)
+        # Merge config
         self._config: BaseTarpit.RuntimeConfig = self.RuntimeConfig()
         # Use self.RuntimeConfig() here, so subclass can impl their own
 
@@ -595,6 +623,12 @@ class BaseTarpit:
             "server config: {}".format(self._config), dataclasses.asdict(self._config)
         )
         self.sem = asyncio.Semaphore(self._config.max_clients)
+
+        # Merge validator config
+        self._validator_config = self.ValidatorConfig()
+
+        # Call setup for subclass setup
+        self._setup()
 
         def _void(*args, **kwargs):
             pass
@@ -605,29 +639,31 @@ class BaseTarpit:
         # setup client_trace
         if self._config.client_trace:
             self.client_trace_logger = logging.getLogger(__name__ + ".client_trace")
-            self._log_client = self._internal_log_client
-
-            self._log_client = self._internal_log_client
+            self.__runtime_log_client = self.__log_client
         else:
-            self._log_client = _void
+            self.__runtime_log_client = _void
 
+        self.__runtime_validate_client: BaseTarpit.ValidatorCallable
         # setup client_valiation
         if self._config.client_valiation:
-            try:
-                self.validator = self.get_default_validator()
-            except NotImplementedError:
-                self.validator = ClientValidator()
-                self.logger.warning("this tarpit does not support client_valiation")
+            match self._validator_support:
+                case self.ValidatorSupportState.YES:
+                    self.__runtime_validate_client = self.__validate_client
+                case self.ValidatorSupportState.CUSTOM:
+                    self.__runtime_validate_client = self._validator_custom_func
+                case _:
+                    self.__runtime_validate_client = self.__fake_validate_client
+                    self.logger.warning("this tarpit does not support client_valiation")
         else:
-            self.validator = ClientValidator()
-        self._setup()
+            self.__runtime_validate_client = self.__fake_validate_client
+            pass
 
 
 # TODO Daymic
 class EchoTarpit(BaseTarpit):
     PATTERN_NAME: str = "_internal_echo"
 
-    async def _real_handler(self, reader, writer: TarpitWriter):
+    async def _handle_client(self, reader, writer: TarpitWriter):
         """
         Callback for providing service
 
@@ -648,18 +684,7 @@ class EchoTarpit(BaseTarpit):
 class EndlessBannerTarpit(BaseTarpit):
     PATTERN_NAME: str = "endless_banner"
 
-    # For SSH
-
-    # The server MAY send other lines of data before sending the version
-    # string.  Each line SHOULD be terminated by a Carriage Return and Line
-    # Feed.  Such lines MUST NOT begin with "SSH-", and SHOULD be encoded
-    # in ISO-10646 UTF-8 [RFC3629] (language is not specified).  Clients
-    # MUST be able to process such lines.  Such lines MAY be silently
-    # ignored, or MAY be displayed to the client user.  If they are
-    # displayed, control character filtering, as discussed in [SSH-ARCH],
-    # SHOULD be used.  The primary use of this feature is to allow TCP-
-    # wrappers to display an error message before disconnecting.
-    async def _real_handler(self, reader, writer: TarpitWriter):
+    async def _handle_client(self, reader, writer: TarpitWriter):
         while True:
             await writer.write_and_drain(b"%x\r\n" % random.randint(0, 2**32))
 
@@ -679,7 +704,7 @@ class EgshAminoasTarpit(BaseTarpit):
     _aminocese_cache: list = []
 
     # cSpell:enable
-    async def _real_handler(self, reader, writer: TarpitWriter):
+    async def _handle_client(self, reader, writer: TarpitWriter):
         while True:
             a = random.choice(self._aminocese_cache)
             header = a.encode() + b"\r\n"
@@ -696,6 +721,12 @@ class EgshAminoasTarpit(BaseTarpit):
 
 
 class HttpTarpit(BaseTarpit):
+    _validator_support = BaseTarpit.ValidatorSupportState.YES
+
+    @dataclasses.dataclass
+    class ValidatorConfig(BaseTarpit.ValidatorConfig):
+        head_allowlist = [b"GET ", b"HEAD"]
+
     class Connection:
         @staticmethod
         def to_bytes(data) -> bytes:
@@ -760,13 +791,10 @@ class HttpTarpit(BaseTarpit):
 
         pass
 
-    def get_default_validator(self) -> ClientValidator:
-        return NullProbingClientValidator(4, [b"GET ", b"POST", b"HEAD"])
-
     async def _http_handler(self, connection: Connection):
         pass
 
-    async def _real_handler(self, reader, writer: TarpitWriter):
+    async def _handle_client(self, reader, writer: TarpitWriter):
         conn = HttpTarpit.Connection(reader, writer)
         await self._http_handler(conn)
         pass
@@ -820,6 +848,7 @@ class HttpPreGeneratedTarpit(HttpTarpit):
         )
 
     def _setup(self):
+        super()._setup()
         self._content_generated = self._generate_content()
 
     def _generate_content(self) -> Content:
@@ -945,8 +974,12 @@ class SshTarpit(BaseTarpit):
     # pretend to be ubuntu
     # see: https://svn.nmap.org/nmap/nmap-service-probes
 
-    def get_default_validator(self) -> ClientValidator:
-        return NullProbingClientValidator(4, [b"SSH-"], self.SSH_VERSION_STRING)
+    _validator_support = BaseTarpit.ValidatorSupportState.YES
+
+    @dataclasses.dataclass
+    class ValidatorConfig(BaseTarpit.ValidatorConfig):
+        head_allowlist = [b"SSH-"]
+
 
     class SshMegNumber(enum.IntEnum):
         """
@@ -1044,7 +1077,7 @@ class SshTransHoldTarpit(SshTarpit):
             "682e636f6d2c7a6c696200000000000000000000000000"
         )
 
-    async def _real_handler(self, reader, writer: TarpitWriter):
+    async def _handle_client(self, reader, writer: TarpitWriter):
         # later_rate = writer.rate
         # if writer.rate < 128:
         # Change to a faster rate to send the KEX handshake
@@ -1079,7 +1112,7 @@ class SshTransHoldTarpit(SshTarpit):
 class EndlessSshTarpit(SshTarpit):
     PATTERN_NAME: str = "endlessh"
 
-    async def _real_handler(self, reader, writer: TarpitWriter):
+    async def _handle_client(self, reader, writer: TarpitWriter):
         while True:
             await writer.write_and_drain(b"%x\r\n" % random.randint(0, 2**32))
 
@@ -1087,8 +1120,12 @@ class EndlessSshTarpit(SshTarpit):
 class TlsTarpit(BaseTarpit):
     PROTOCOL_VERSION_MAGIC = b"\x03\x03"  # TLS 1.2, also apply to 1.3
 
-    def get_default_validator(self) -> ClientValidator:
-        return NullProbingClientValidator(4, [b"\x16\x03\x03"])
+    _validator_support = BaseTarpit.ValidatorSupportState.YES
+
+    @dataclasses.dataclass
+    class ValidatorConfig(BaseTarpit.ValidatorConfig):
+        head_allowlist = [b"\x16\x03\x03"]
+
 
     # See: TLS 1.2 RFC ttps://www.rfc-editor.org/rfc/rfc5246#page-15
     class TlsRecordContentType(enum.IntEnum):
@@ -1143,7 +1180,7 @@ class TlsHelloRequestTarpit(TlsTarpit):
         h = cls.make_handshake_frag(cls.TlsHandshakeType.HELLO_REQUEST, b"")
         return cls.make_record(cls.TlsRecordContentType.HANDSHAKE, h)
 
-    async def _real_handler(self, reader, writer: TarpitWriter):
+    async def _handle_client(self, reader, writer: TarpitWriter):
         while True:
             packet = self.make_hello_request_record()
             await writer.write_and_drain(packet)
@@ -1207,12 +1244,13 @@ class TlsSlowHelloTarpit(TlsTarpit):
         )
         return cls.make_record(cls.TlsRecordContentType.HANDSHAKE, h)
 
-    async def _real_handler(self, reader, writer: TarpitWriter):
+    async def _handle_client(self, reader, writer: TarpitWriter):
         while True:
-            await writer.write_and_drain(self.packet)
+            await writer.write_and_drain(self._packet)
 
     def _setup(self):
-        self.packet = self.make_server_hello_record()
+        super()._setup()
+        self._packet = self.make_server_hello_record()
 
     pass
 
@@ -1324,11 +1362,11 @@ def run_from_config_dict(config: dict):
 
     tarpit_classes: list[BaseTarpit] = get_all_subclasses(BaseTarpit)
     available_tarpits: dict[str, typing.Any] = {}
-        # set this to dict[str,BaseTarpit] will make mypy complain
+    # set this to dict[str,BaseTarpit] will make mypy complain
     for c in tarpit_classes:
-            if c.PATTERN_NAME != BaseTarpit.PATTERN_NAME:
-                available_tarpits.update({c.PATTERN_NAME: c})
-                logging.debug("discovered tarpit pattern: %s", c.PATTERN_NAME)
+        if c.PATTERN_NAME != BaseTarpit.PATTERN_NAME:
+            available_tarpits.update({c.PATTERN_NAME: c})
+            logging.debug("discovered tarpit pattern: %s", c.PATTERN_NAME)
 
     for name, tarpit_config in config["tarpits"].items():
         tarpit_config["pattern"] = tarpit_config["pattern"].casefold()
@@ -1338,7 +1376,7 @@ def run_from_config_dict(config: dict):
 
         real_tarpit_conf = {"name": name} | tarpit_config
         real_tarpit_conf.pop("bind")  # Remove it since its useless
-        
+
         if available_tarpits.get(tarpit_config["pattern"]):
             pit: BaseTarpit = available_tarpits[tarpit_config["pattern"]](
                 **real_tarpit_conf
