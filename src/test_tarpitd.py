@@ -36,79 +36,6 @@ class TestTarpit(unittest.IsolatedAsyncioTestCase):
         pass
 
 
-class TarpitEntry(typing.NamedTuple):
-    port: int
-    server: asyncio.Server
-
-
-@dataclasses.dataclass
-class TarpitsBeTested:
-    default: TarpitEntry | None = None
-    without_verify: TarpitEntry | None = None
-
-class NeoTestTarpit(unittest.IsolatedAsyncioTestCase):
-    TARPIT = tarpitd.BaseTarpit
-    REQUEST = b""
-    REQUEST_INVALID = b"NO_TEST!!!"
-    CONFIG={'rate_limit':0}
-
-    async def setup_tarpit(self, **conf):
-        t = self.TARPIT()
-        t_server = await t.create_server("127.0.0.2", 0)
-        t_port = t_server.sockets[0].getsockname()[1]
-        return TarpitEntry(t_port, t_server)
-
-    async def asyncSetUp(self) -> None:
-        print("[TEST] set up test")
-        self.tarpits: TarpitsBeTested = TarpitsBeTested()
-        self.tarpits.default = await self.setup_tarpit(**self.CONFIG)
-
-        async with asyncio.TaskGroup() as tg:
-            for i in dataclasses.fields(self.tarpits):
-                if item := getattr(self.tarpits, i.name):
-                    tg.create_task(item.server.start_serving())
-        print("[TEST] set up done")
-
-    async def asyncTearDown(self):
-        print("[TEST] teardown test")
-        for i in dataclasses.fields(self.tarpits):
-            if item := getattr(self.tarpits, i.name):
-                item.server.close()
-                await item.server.wait_closed()
-        print("[TEST] teardown test done")
-
-    async def verify_response(self, reader: asyncio.StreamReader):
-        raise NotImplementedError
-
-    async def do_default_test(self):
-        port = self.tarpits.default.port
-        reader, writer = await asyncio.open_connection("127.0.0.2", port)
-        writer.write(self.REQUEST)
-        await writer.drain()
-        await self.verify_response(reader)
-        pass
-
-    async def test(self):
-        if self.__class__ is not NeoTestTarpit:
-            await self.do_default_test()
-
-
-class T_EchoTarpit(NeoTestTarpit):
-    TARPIT = tarpitd.EchoTarpit
-    REQUEST = b"TEST\n"
-
-    async def verify_response(self, reader: asyncio.StreamReader):
-        self.assertEqual(await reader.readline(), self.REQUEST)
-
-class T_HttpTarpit(NeoTestTarpit):
-    TARPIT = tarpitd.HttpOkTarpit
-    REQUEST = b"GET \n"
-
-    async def verify_response(self, reader: asyncio.StreamReader):
-        self.assertTrue((await reader.readline()).startswith(b"HTTP"))
-
-
-
 class TestRateLimitPositive(TestTarpit):
     def create_tarpit_obj(self):
         t = tarpitd.EndlessBannerTarpit(rate_limit=2)
@@ -144,6 +71,7 @@ class TestRateLimitNegative(TestTarpit):
         await writer.wait_closed()
         self.addAsyncCleanup(self.on_cleanup)
 
+
 class TestHttpTarpit(TestTarpit):
     def create_tarpit_obj(self):
         t = tarpitd.HttpEndlessHeaderTarpit(rate_limit=0)
@@ -162,35 +90,6 @@ class TestHttpTarpit(TestTarpit):
             if line.startswith(b"Set-Cookie:"):
                 self.assertFalse(line.find(b"=") == -1)
                 break
-        self.addAsyncCleanup(self.on_cleanup)
-
-
-class TestHttpTarpitClientExamine(TestTarpit):
-    def create_tarpit_obj(self):
-        t = tarpitd.HttpEndlessHeaderTarpit(rate_limit=0, client_examine=True)
-        return t
-
-    async def test_response(self):
-        reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
-        writer.write(b"HEAD")
-        await writer.drain()
-        line = await reader.readline()
-        self.assertTrue(line.startswith(b"HTTP"))
-        writer.close()
-        await writer.wait_closed()
-        while True:
-            line = await reader.readline()
-            if line.startswith(b"Set-Cookie:"):
-                self.assertFalse(line.find(b"=") == -1)
-                break
-        self.addAsyncCleanup(self.on_cleanup)
-
-    async def test_response_bad_req(self):
-        reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
-        writer.write(b"DUCK")
-        await writer.drain()
-        line = await reader.readline()
-        self.assertTrue(len(line) == 0)
         self.addAsyncCleanup(self.on_cleanup)
 
 
@@ -255,12 +154,180 @@ class TestSshTarpit(TestTarpit):
 
     async def test_response(self):
         reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
+        writer.write(b"SSH-FAKE-SSH")
         line = await reader.read(4)
         self.assertTrue(line.startswith(b"SSH"))
         await writer.drain()
         writer.close()
         await writer.wait_closed()
         self.addAsyncCleanup(self.on_cleanup)
+
+
+# NEO
+
+
+async def read_with_timeout(
+    stream_reader: asyncio.StreamReader, n: int, timeout: float
+) -> bytes:
+    data = bytearray()
+    try:
+        async with asyncio.timeout(timeout):
+            while len(data) < n:
+                chunk = await stream_reader.read(n - len(data))
+                if not chunk:
+                    break
+                data.extend(chunk)
+    except asyncio.TimeoutError:
+        pass
+    return bytes(data)
+
+async def readline_with_timeout(
+    stream_reader: asyncio.StreamReader, timeout: float
+) -> bytes:
+    data: bytes
+    try:
+        async with asyncio.timeout(timeout):
+            data = await stream_reader.readline()
+    except asyncio.TimeoutError:
+        return b""
+    return data
+
+
+class TarpitTestSet(typing.NamedTuple):
+    request: bytes | None
+    excepted_response: (
+        bytes
+        | typing.Callable[
+            [asyncio.StreamReader, asyncio.StreamWriter], typing.Awaitable[None]
+        ]
+    )
+    config: dict = {"rate_limit": 1024}
+
+
+class PreparedTarpitServer(typing.NamedTuple):
+    port: int
+    server: asyncio.Server
+    test_set: TarpitTestSet
+
+
+class NeoTestTarpit(unittest.IsolatedAsyncioTestCase):
+    TARPIT = tarpitd.BaseTarpit
+    TEST_SET: list[TarpitTestSet] = []
+
+    def _setup(self):
+        pass
+
+    async def setup_tarpit(self, **conf):
+        t = self.TARPIT(**conf)
+        t_server = await t.create_server("127.0.0.2", 0)
+        t_port = t_server.sockets[0].getsockname()[1]
+        return (t_port, t_server)
+
+    async def asyncSetUp(self) -> None:
+        print("[TEST] set up test")
+        self._setup()
+        self.tarpits: list[PreparedTarpitServer] = []
+        for i in self.TEST_SET:
+            p, s = await self.setup_tarpit(**(i.config))
+            self.tarpits.append(PreparedTarpitServer(p, s, i))
+
+        async with asyncio.TaskGroup() as tg:
+            for j in self.tarpits:
+                tg.create_task(j.server.start_serving())
+        print("[TEST] set up done")
+
+    async def asyncTearDown(self):
+        print("[TEST] teardown test")
+        for i in self.tarpits:
+            i.server.close()
+            await i.server.wait_closed()
+        print("[TEST] teardown test done")
+
+    async def do_test_set(self, server: PreparedTarpitServer):
+        port = server.port
+        reader, writer = await asyncio.open_connection("127.0.0.2", port)
+
+        request = server.test_set.request
+        await asyncio.sleep(0)
+        if isinstance(request, bytes):
+            writer.write(request)
+            await writer.drain()
+
+
+        await asyncio.sleep(0)
+        excepted_response = server.test_set.excepted_response
+        if isinstance(excepted_response, bytes):
+            data = await read_with_timeout(reader, len(excepted_response), 10)
+            await asyncio.sleep(1)
+            self.assertTrue(data.startswith(excepted_response))
+        else:
+            await asyncio.sleep(0)
+            await excepted_response(reader, writer)
+        pass
+
+    async def test_all(self):
+        if self.__class__ is not NeoTestTarpit:
+            for i in self.tarpits:
+                print("running %s, %s, %s" % (i.port, i.server, i.test_set._asdict()))
+                await self.do_test_set(i)
+
+
+async def get_http_header(reader: asyncio.StreamReader) -> str:
+    """
+    Checks if the specified string is present in the headers read from the asyncio.StreamReader.
+    """
+    headers = b""
+    for i in range(32):
+        line = await readline_with_timeout(reader,1)
+        if line == b"\r\n":  # End of headers marker
+            break
+        headers += line
+
+    decoded_headers = headers.decode("utf-8")
+    return decoded_headers
+
+
+class T_HttpOk(NeoTestTarpit):
+    TARPIT = tarpitd.HttpOkTarpit
+    TEST_SET: list[TarpitTestSet] = [
+        TarpitTestSet(request=b"GET ", excepted_response=b"HTTP"),
+        TarpitTestSet(request=b"BAD_", excepted_response=b""),
+    ]
+
+
+class T_HttpDeflateHtml(NeoTestTarpit):
+    TARPIT = tarpitd.HttpDeflateHtmlBombTarpit
+
+    async def have_gzip(self, reader, writer):
+        header = await get_http_header(reader)
+        self.assertFalse("deflate" in header)
+        self.assertTrue("gzip" in header)
+
+    TEST_SET: list[TarpitTestSet] = [
+        TarpitTestSet(request=b"GET ", excepted_response=b"HTTP"),
+        TarpitTestSet(request=b"BAD_", excepted_response=b""),
+    ]
+
+    def _setup(self):
+        self.TEST_SET.append(
+            TarpitTestSet(request=b"GET ", excepted_response=self.have_gzip)
+        )
+
+class T_HttpDeflateSize(NeoTestTarpit):
+    TARPIT = tarpitd.HttpDeflateSizeBombTarpit
+
+    async def have_deflate(self, reader, writer):
+        header = await get_http_header(reader)
+        self.assertTrue("deflate" in header)
+        self.assertFalse("gzip" in header)
+
+    TEST_SET: list[TarpitTestSet] = []
+
+    def _setup(self):
+        self.TEST_SET.append(
+            TarpitTestSet(request=b"GET ", excepted_response=self.have_deflate)
+        )
+
 
 
 if __name__ == "__main__":

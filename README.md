@@ -51,6 +51,8 @@ python tarpitd.py --manual
 
 Alternatively, open the script in any text editor to view the embedded manual text directly.
 
+---
+
 ## Development and Contribution
 
 Tarpitd.py is designed for easy modification—simply edit the single script file. Contributions are welcome.

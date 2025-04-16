@@ -980,7 +980,6 @@ class SshTarpit(BaseTarpit):
     class ValidatorConfig(BaseTarpit.ValidatorConfig):
         head_allowlist = [b"SSH-"]
 
-
     class SshMegNumber(enum.IntEnum):
         """
         RFC 4250 4.1
@@ -1126,7 +1125,6 @@ class TlsTarpit(BaseTarpit):
     class ValidatorConfig(BaseTarpit.ValidatorConfig):
         head_allowlist = [b"\x16\x03\x03"]
 
-
     # See: TLS 1.2 RFC ttps://www.rfc-editor.org/rfc/rfc5246#page-15
     class TlsRecordContentType(enum.IntEnum):
         HANDSHAKE = 22
@@ -1265,7 +1263,7 @@ async def async_run_server(server):
                     logging.debug(f"asyncio serving on {addr}")
                     tg.create_task(s.serve_forever())
                 except OSError as e:
-                    logging.warning(e.strerror)
+                    logging.error("failed to run server. err: `%s`", e)
     except asyncio.CancelledError:
         logging.warning("`async_run_server` task cancelled. shutting down tarpitd.")
     finally:
@@ -1334,6 +1332,7 @@ def get_log_handler(file_name_in_conf):
 
 
 def run_from_config_dict(config: dict):
+    logging.warning("tarpid.py is running")
     server = []
 
     ct_enabled = False
@@ -1514,8 +1513,6 @@ def main_cli():
         logger.setLevel(logging.DEBUG)
     if args.verbose >= 3:
         logging.warning("higher verbose level is not implemented")
-
-    logging.warning("tarpid.py is running")
 
     if args.manual:
         display_manual_unix(args.manual)

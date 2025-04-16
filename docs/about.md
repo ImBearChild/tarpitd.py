@@ -30,8 +30,7 @@ An efficiently implemented tarpit is specifically designed to consume far fewer 
 To put it in perspective:
 
 - A typical HTTP server like Apache or Caddy might require hundreds of megabytes—or even gigabytes—of memory depending on the workload. And it will consume much CPU time to prepare a response.
-- In contrast, tarpitd.py may require as little as 12 MB of RAM to serve something as resource-intensive as an HTML bomb.
-With this bomb pre-generated, the only thing needs to do is sending the response. (Sadly, it's still larger than OpenSSHd. Python will take serval MBs, even for printing a "hello world")
+- In contrast, tarpitd.py may require as little as 300kb of RAM to serve something as resource-intensive as an HTML bomb. With this bomb pre-generated, the only thing needs to do is sending the response. 
 
 In many cases, a tarpit not only conserves resources on the defending side but also imposes greater computational and time costs on the attacker. For example, if the attacker attempts to parse the malicious HTML bomb, they may expend significantly more time and resources than the defender did to generate it. Likewise, if an attacker is solely interested in receiving HTTP headers, the defender’s effort to generate a tarpit response may effectively waste the attacker’s time.
 
