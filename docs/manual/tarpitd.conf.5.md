@@ -36,7 +36,7 @@ Follows the same rule as [tarpit.py(1)](./tarpitd.py.1.md).
 
 The maximum number of clients the server will handle. This is calculated per bind port.
 
-#### `client_valiation=` (bool)
+#### `client_validation=` (bool)
 
 Validate the client before sending a response. 
 

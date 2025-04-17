@@ -259,7 +259,7 @@ Follows the same rule as [tarpit.py(1)](./tarpitd.py.1.md).
 The maximum number of clients the server will handle. This is calculated per
 bind port.
 
-#### `client_valiation=` (bool)
+#### `client_validation=` (bool)
 
 Validate the client before sending a response.
 
@@ -283,23 +283,19 @@ Default is `<stdout>`.
 ## Example
 
 ```toml [tarpits] [tarpits.my_cool_ssh_tarpit] pattern = "ssh_trans_hold"
-client_examine = true max_clients = 128 rate_limit = -2 bind = [{ host =
-"127.0.0.1", port = "2222" }]
+client_trace = true client_valiation = true max_clients = 8152 rate_limit = -2
+bind = [{ host = "127.0.0.1", port = "2222" }]
 
-[tarpits.http_tarpit] pattern = "http_deflate_html_bomb" rate_limit = 4096
-bind = [
+[tarpits.http_tarpit] pattern = "HTTP_ENDLESS_COOKIE" bind = [
   { host = "127.0.0.1", port = "8080" },
-  { host = "::1", port = "8080" },
-  { host = "127.0.0.1", port = "8888" },
+  { host = "::1", port = "8888" },
 ]
 
-[tarpits.tls_tarpit] pattern = "tls_endless_hello_request" rate_limit = 1
-client_trace = True bind = [
+[tarpits.tls_tarpit] pattern = "tls_slow_hello" rate_limit = 1 bind = [
   { host = "127.0.0.1", port = "8443" },
-  { host = "127.0.0.1", port = "6697" },
 ]
 
-[logging] client_trace = ./my_log.log ```
+[logging] client_trace = "./client_trace.log" ```
 
 ## AUTHOR
 
@@ -432,11 +428,6 @@ class BaseTarpit:
         banner: bytes = b""
         response_failed: bytes = b""
 
-    class ValidatorSupportState(enum.Enum):
-        NO = 0
-        YES = 1
-        CUSTOM = 2
-
     class ValidationResult(typing.NamedTuple):
         expected: bool
         data: bytes | None = None
@@ -448,9 +439,9 @@ class BaseTarpit:
         typing.Awaitable[ValidationResult],
     ]
 
-    _validator_support: ValidatorSupportState = ValidatorSupportState.NO
+    _validator_support: int = 0
     _validator_config: ValidatorConfig
-    _validator_custom_func: ValidatorCallable
+
 
     @dataclasses.dataclass
     class RuntimeConfig:
@@ -463,7 +454,7 @@ class BaseTarpit:
         # default backlog is 100
         rate_limit: int = 1
         client_trace: bool = False
-        client_valiation: bool = True
+        client_validation: bool = True
 
         def update_from_dict(self, config_data: dict):
             for key, value in config_data.items():
@@ -493,7 +484,10 @@ class BaseTarpit:
         """
         raise NotImplementedError
 
-    async def __validate_client(self, reader, writer):
+    async def _validate_client(self, reader, writer):
+        """
+        Overload this if subclass want a different validator
+        """
         conf = self._validator_config
         await writer.write_and_drain(conf.banner)
         data = await read_with_timeout(reader, conf.read_len, conf.timeout)
@@ -644,16 +638,14 @@ class BaseTarpit:
             self.__runtime_log_client = _void
 
         self.__runtime_validate_client: BaseTarpit.ValidatorCallable
-        # setup client_valiation
-        if self._config.client_valiation:
+        # setup client_validation
+        if self._config.client_validation:
             match self._validator_support:
-                case self.ValidatorSupportState.YES:
-                    self.__runtime_validate_client = self.__validate_client
-                case self.ValidatorSupportState.CUSTOM:
-                    self.__runtime_validate_client = self._validator_custom_func
+                case 1:
+                    self.__runtime_validate_client = self._validate_client
                 case _:
                     self.__runtime_validate_client = self.__fake_validate_client
-                    self.logger.warning("this tarpit does not support client_valiation")
+                    self.logger.warning("this tarpit does not support client_validation")
         else:
             self.__runtime_validate_client = self.__fake_validate_client
             pass
@@ -721,7 +713,7 @@ class EgshAminoasTarpit(BaseTarpit):
 
 
 class HttpTarpit(BaseTarpit):
-    _validator_support = BaseTarpit.ValidatorSupportState.YES
+    _validator_support = 1
 
     @dataclasses.dataclass
     class ValidatorConfig(BaseTarpit.ValidatorConfig):
@@ -974,7 +966,7 @@ class SshTarpit(BaseTarpit):
     # pretend to be ubuntu
     # see: https://svn.nmap.org/nmap/nmap-service-probes
 
-    _validator_support = BaseTarpit.ValidatorSupportState.YES
+    _validator_support = 1
 
     @dataclasses.dataclass
     class ValidatorConfig(BaseTarpit.ValidatorConfig):
@@ -1119,7 +1111,7 @@ class EndlessSshTarpit(SshTarpit):
 class TlsTarpit(BaseTarpit):
     PROTOCOL_VERSION_MAGIC = b"\x03\x03"  # TLS 1.2, also apply to 1.3
 
-    _validator_support = BaseTarpit.ValidatorSupportState.YES
+    _validator_support = 1
 
     @dataclasses.dataclass
     class ValidatorConfig(BaseTarpit.ValidatorConfig):
@@ -1289,11 +1281,11 @@ def run_from_cli(args):
         logging.debug("no client trace config from cli")
 
     if args.validate_client == "check" or args.validate_client is None:
-        client_valiation = True
+        client_validation = True
     else:
-        client_valiation = False
+        client_validation = False
 
-    if client_valiation == "probe":
+    if client_validation == "probe":
         raise NotImplementedError
 
     for i in args.serve:
@@ -1302,7 +1294,7 @@ def run_from_cli(args):
             "pattern": p[0],
             "rate_limit": args.rate_limit,
             "bind": [{"host": p[2].partition(":")[0], "port": p[2].partition(":")[2]}],
-            "client_valiation": client_valiation,
+            "client_validation": client_validation,
             "client_trace": client_trace,
         }
         number += 1
