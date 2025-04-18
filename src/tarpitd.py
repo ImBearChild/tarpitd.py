@@ -1332,7 +1332,7 @@ def run_from_config_dict(config: dict):
 
     ct_enabled = False
     for name, tarpit_config in config["tarpits"].items():
-        ct_enabled = ct_enabled and tarpit_config.get("client_trace")
+        ct_enabled = ct_enabled or tarpit_config.get("client_trace")
 
     # Setup logger
     if ct_enabled:
