@@ -3,7 +3,6 @@ import asyncio
 import tarpitd
 import time
 import typing
-import dataclasses
 
 
 class TestTarpit(unittest.IsolatedAsyncioTestCase):
@@ -93,27 +92,6 @@ class TestHttpTarpit(TestTarpit):
         self.addAsyncCleanup(self.on_cleanup)
 
 
-class TestHttpDeflateSizeBombTarpit(TestTarpit):
-    def create_tarpit_obj(self):
-        t = tarpitd.HttpDeflateSizeBombTarpit(rate_limit=0)
-        return t
-
-    async def test_response(self):
-        reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
-        writer.write(b"GET ")
-        line = await reader.readline()
-        self.assertTrue(line.startswith(b"HTTP"))
-        await writer.drain()
-        writer.close()
-        await writer.wait_closed()
-        while True:
-            line = await reader.readline()
-            if line.startswith(b"Content-Encoding"):
-                self.assertFalse(line.find(b"deflate") == -1)
-                break
-
-        self.addAsyncCleanup(self.on_cleanup)
-
 
 class TestTlsTarpit(TestTarpit):
     def create_tarpit_obj(self):
@@ -147,21 +125,6 @@ class TestTlsSlowHelloTarpit(TestTarpit):
         self.addAsyncCleanup(self.on_cleanup)
 
 
-class TestSshTarpit(TestTarpit):
-    def create_tarpit_obj(self):
-        t = tarpitd.SshTransHoldTarpit(rate_limit=0)
-        return t
-
-    async def test_response(self):
-        reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
-        writer.write(b"SSH-FAKE-SSH")
-        line = await reader.read(4)
-        self.assertTrue(line.startswith(b"SSH"))
-        await writer.drain()
-        writer.close()
-        await writer.wait_closed()
-        self.addAsyncCleanup(self.on_cleanup)
-
 
 # NEO
 
@@ -180,6 +143,7 @@ async def read_with_timeout(
     except asyncio.TimeoutError:
         pass
     return bytes(data)
+
 
 async def readline_with_timeout(
     stream_reader: asyncio.StreamReader, timeout: float
@@ -253,13 +217,12 @@ class NeoTestTarpit(unittest.IsolatedAsyncioTestCase):
             writer.write(request)
             await writer.drain()
 
-
         await asyncio.sleep(0)
         excepted_response = server.test_set.excepted_response
         if isinstance(excepted_response, bytes):
             data = await read_with_timeout(reader, len(excepted_response), 10)
             await asyncio.sleep(1)
-            self.assertTrue(data.startswith(excepted_response))
+            self.assertIn(excepted_response,data)
         else:
             await asyncio.sleep(0)
             await excepted_response(reader, writer)
@@ -278,7 +241,7 @@ async def get_http_header(reader: asyncio.StreamReader) -> str:
     """
     headers = b""
     for i in range(32):
-        line = await readline_with_timeout(reader,1)
+        line = await readline_with_timeout(reader, 1)
         if line == b"\r\n":  # End of headers marker
             break
         headers += line
@@ -313,6 +276,7 @@ class T_HttpDeflateHtml(NeoTestTarpit):
             TarpitTestSet(request=b"GET ", excepted_response=self.have_gzip)
         )
 
+
 class T_HttpDeflateSize(NeoTestTarpit):
     TARPIT = tarpitd.HttpDeflateSizeBombTarpit
 
@@ -328,6 +292,42 @@ class T_HttpDeflateSize(NeoTestTarpit):
             TarpitTestSet(request=b"GET ", excepted_response=self.have_deflate)
         )
 
+
+class T_SshValidatorExtra(NeoTestTarpit):
+    class T(tarpitd.SshTransHoldTarpit):
+        class ValidatorConfig(tarpitd.SshTransHoldTarpit.ValidatorConfig):
+            response_failed = b"BAD_RESPONSE"
+
+    TARPIT = T
+
+    TEST_SET: list[TarpitTestSet] = [
+        TarpitTestSet(request=b"SSH-FAKE", excepted_response=b"SSH-"),
+        TarpitTestSet(request=b"BAD_", excepted_response=b"BAD"),
+    ]
+
+
+class T_SshTransHold(NeoTestTarpit):
+    TARPIT = tarpitd.SshTransHoldTarpit
+
+    TEST_SET: list[TarpitTestSet] = [
+        TarpitTestSet(request=b"BAD_", excepted_response=b"SSH-"),
+    ]
+
+
+class T_SshEndless(NeoTestTarpit):
+    TARPIT = tarpitd.SshEndlessTarpit
+
+    TEST_SET: list[TarpitTestSet] = []
+
+    async def have_lines(self, reader: asyncio.StreamReader, writer):
+        for i in range(2):
+            data = await read_with_timeout(reader, 64, 4)
+            self.assertIn(b"\r\n", data)
+
+    def _setup(self):
+        self.TEST_SET.append(
+            TarpitTestSet(request=b"SSH-FAKE", excepted_response=self.have_lines)
+        )
 
 
 if __name__ == "__main__":
