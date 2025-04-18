@@ -1376,7 +1376,7 @@ def run_from_config_dict(config: dict):
                 **real_tarpit_conf
             )
         else:
-            print("pattern %s is not exist!", tarpit_config["pattern"])
+            logging.error("pattern %s does not exist!", tarpit_config["pattern"])
             exit()
 
         logging.info("server bind: {}".format(tarpit_config["bind"]))
