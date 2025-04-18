@@ -971,6 +971,9 @@ class SshTarpit(BaseTarpit):
     @dataclasses.dataclass
     class ValidatorConfig(BaseTarpit.ValidatorConfig):
         head_allowlist = [b"SSH-"]
+        response_failed = b""  # Cannot refer SSH_VERSION_STRING here
+
+    ValidatorConfig.response_failed = SSH_VERSION_STRING
 
     class SshMegNumber(enum.IntEnum):
         """
@@ -1100,7 +1103,7 @@ class SshTransHoldTarpit(SshTarpit):
     pass
 
 
-class EndlessSshTarpit(SshTarpit):
+class SshEndlessTarpit(SshTarpit):
     PATTERN_NAME: str = "endlessh"
 
     async def _handle_client(self, reader, writer: TarpitWriter):
