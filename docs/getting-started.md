@@ -45,7 +45,7 @@ tarpitd.py allows you to launch multiple services in a single command, each usin
 *Example 1: Run both an HTTP tarpit and an TLS tarpit concurrently:*
 
 ```bash
-tarpitd.py -r -2 -s HTTP_ENDLESS_COOKIE:0.0.0.0:8088 -s tls_slow_hello:127.0.0.1:8443
+tarpitd.py -r -2 -s http_endless_header:0.0.0.0:8088 -s tls_slow_hello:127.0.0.1:8443
 ```
 
 In this case, the option `-r -2` makes the program wait 2 seconds for every byte sent, forcing each malicious request to endure a long delay.
@@ -79,7 +79,7 @@ rate_limit = -2
 bind = [{ host = "127.0.0.1", port = "2222" }]
 
 [tarpits.http_tarpit]
-pattern = "HTTP_ENDLESS_COOKIE"
+pattern = "http_endless_header"
 bind = [
   { host = "127.0.0.1", port = "8080" },
   { host = "::1", port = "8888" },
