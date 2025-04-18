@@ -72,7 +72,7 @@ rate_limit = -2
 bind = [{ host = "127.0.0.1", port = "2222" }]
 
 [tarpits.http_tarpit]
-pattern = "HTTP_ENDLESS_COOKIE"
+pattern = "http_endless_header"
 bind = [
   { host = "127.0.0.1", port = "8080" },
   { host = "::1", port = "8888" },

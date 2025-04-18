@@ -189,7 +189,7 @@ Start an endlessh tarpit:
 
 Start an endless HTTP tarpit with a 2-second per-byte delay:
 
-    tarpitd.py -r-2 -s HTTP_ENDLESS_COOKIE:0.0.0.0:8088
+    tarpitd.py -r-2 -s http_endless_header:0.0.0.0:8088
 
 Start an endless HTTP tarpit with a rate limit of 1 KB/s:
 
@@ -199,7 +199,7 @@ Start two different HTTP tarpit services concurrently (the name of the pattern
 is case-insensitive):
 
     tarpitd.py -s http_deflate_html_bomb:127.0.0.1:8080 \
-                  HTTP_ENDLESS_COOKIE:0.0.0.0:8088
+                  http_endless_header:0.0.0.0:8088
 
 ## AUTHOR
 
@@ -286,7 +286,7 @@ Default is `<stdout>`.
 client_trace = true client_valiation = true max_clients = 8152 rate_limit = -2
 bind = [{ host = "127.0.0.1", port = "2222" }]
 
-[tarpits.http_tarpit] pattern = "HTTP_ENDLESS_COOKIE" bind = [
+[tarpits.http_tarpit] pattern = "http_endless_header" bind = [
   { host = "127.0.0.1", port = "8080" },
   { host = "::1", port = "8888" },
 ]
