@@ -574,6 +574,11 @@ class BaseTarpit:
                 ConnectionResetError,
             ) as e:
                 self.__runtime_log_client(writer, "conn_error", comment={"err": str(e)})
+            except WindowsError as e:  # type: ignore
+                if e.winerror == 121: 
+                    self.__runtime_log_client(writer, "conn_error", comment={"err": str(e)})
+                else:
+                    self.logger.exception(e)
             except Exception as e:
                 self.logger.exception(e)
             finally:
