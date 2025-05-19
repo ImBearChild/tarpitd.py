@@ -442,7 +442,6 @@ class BaseTarpit:
     _validator_support: int = 0
     _validator_config: ValidatorConfig
 
-
     @dataclasses.dataclass
     class RuntimeConfig:
         name: str = "fixme:no_name"
@@ -645,7 +644,9 @@ class BaseTarpit:
                     self.__runtime_validate_client = self._validate_client
                 case _:
                     self.__runtime_validate_client = self.__fake_validate_client
-                    self.logger.warning("this tarpit does not support client_validation")
+                    self.logger.warning(
+                        "this tarpit does not support client_validation"
+                    )
         else:
             self.__runtime_validate_client = self.__fake_validate_client
             pass
@@ -1118,7 +1119,8 @@ class TlsTarpit(BaseTarpit):
 
     @dataclasses.dataclass
     class ValidatorConfig(BaseTarpit.ValidatorConfig):
-        head_allowlist = [b"\x16\x03\x03"]
+        head_allowlist = [b"\x16\x03"]
+
 
     # See: TLS 1.2 RFC ttps://www.rfc-editor.org/rfc/rfc5246#page-15
     class TlsRecordContentType(enum.IntEnum):
@@ -1188,7 +1190,7 @@ class TlsSlowHelloTarpit(TlsTarpit):
     def make_server_hello_record(cls) -> bytes:
         padding_data_length = 2**14 - 1024
         session_ticket_data_length = 512
-        session_id_length = 32  # Session ID 长度 (最大32)
+        session_id_length = 32  # Session ID 32 max
 
         renego_info_ext = b"\xff\x01\x00\x01\x00"  # 5 bytes
         ec_points_ext = (
@@ -1246,6 +1248,60 @@ class TlsSlowHelloTarpit(TlsTarpit):
         self._packet = self.make_server_hello_record()
 
     pass
+
+
+class FtpTarpit(BaseTarpit):
+    # https://www.rfc-editor.org/rfc/rfc959
+    _validator_support = 1
+
+    @dataclasses.dataclass
+    class ValidatorConfig(BaseTarpit.ValidatorConfig):
+        banner = (
+            #b"220 (vsFTPd 3.0.5)\r\n"
+            b"220 FileZilla Server 1.10.1\r\n"
+            #b"220 Please visit https://filezilla-project.org/\r\n"
+        )
+        head_allowlist = [b"USER"]
+        response_failed = b"530 Please login with USER.\r\n"
+
+    pass
+
+
+class FtpEndlessMotdTarpit(FtpTarpit):
+    PATTERN_NAME: str = "ftp_endless_motd"
+
+    async def _handle_client(self, reader, writer: TarpitWriter):
+        await writer.write_and_drain(b"230-NOTICE: \r\n")
+        while True:
+            await writer.write_and_drain(b"230-%x\r\n" % random.randint(0, 2**32))
+
+
+class SmtpTarpit(BaseTarpit):
+    # https://datatracker.ietf.org/doc/html/rfc5321#appendix-D.1
+
+    _validator_support = 1
+
+    @dataclasses.dataclass
+    class ValidatorConfig(BaseTarpit.ValidatorConfig):
+        banner = (
+            b"220 [127.0.0.1] ESMTP Sendmail 8.16.1/8.16.1; "
+            b"Thu, 01 Jan 1970 00:00:00 +0000\r\n"
+        )
+        head_allowlist = [b"EHLO", b"HELO"]
+        response_failed = b"502 Error: command not implemented.\r\n"
+
+    pass
+
+
+class SmtpEndlessEhloTarpit(SmtpTarpit):
+    PATTERN_NAME: str = "smtp_endless_ehlo"
+
+    async def _handle_client(self, reader, writer: TarpitWriter):
+        await writer.write_and_drain(
+            b"250-[127.0.0.1] Hello [192.168.1.1], pleased to meet you \r\n"
+        )
+        while True:
+            await writer.write_and_drain(b"250-%x\r\n" % random.randint(0, 2**32))
 
 
 async def async_run_server(server):
