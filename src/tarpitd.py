@@ -574,9 +574,13 @@ class BaseTarpit:
                 ConnectionResetError,
             ) as e:
                 self.__runtime_log_client(writer, "conn_error", comment={"err": str(e)})
+            except asyncio.exceptions.CancelledError:
+                self.logger.debug("task cancelled")
             except WindowsError as e:  # type: ignore
-                if e.winerror == 121: 
-                    self.__runtime_log_client(writer, "conn_error", comment={"err": str(e)})
+                if e.winerror == 121:
+                    self.__runtime_log_client(
+                        writer, "conn_error", comment={"err": str(e)}
+                    )
                 else:
                     self.logger.exception(e)
             except Exception as e:
@@ -860,17 +864,59 @@ class HttpPreGeneratedTarpit(HttpTarpit):
 
 class HttpBadHtmlTarpit(HttpPreGeneratedTarpit):
     PATTERN_NAME = "http_bad_site"
-    _BAD_SCRIPT = b"""
-    for (;;) {
-    console.log("DUCK");}
-    """
+    # const WORKERS = 4, SAMPLES_PER = 1e10;
+    # const wSrc = `
+    # self.onmessage = e => {
+    # const n = e.data;
+    # let hit=0;
+    # for(let i=0;i<n;i++){
+    #     const x=Math.random(), y=Math.random();
+    #     if(x*x+y*y<=1) hit++;
+    # }
+    # postMessage(hit);
+    # close();
+    # };`;
+    # const blob = new Blob([wSrc],{type:'application/javascript'});
+    # const url = URL.createObjectURL(blob);
+    # let remaining = WORKERS, totalHit = 0, totalSamples = WORKERS*SAMPLES_PER;
+    # for(let i=0;i<WORKERS;i++){
+    # const w = new Worker(url);
+    # w.onmessage = e => {
+    #     totalHit += e.data;
+    #     remaining--;
+    #     if(remaining===0){
+    #     console.log('pi ~=', (4*totalHit/totalSamples));
+    #     URL.revokeObjectURL(url);
+    #     }
+    # };
+    # w.postMessage(SAMPLES_PER);
+    # }
+    _BAD_SCRIPT = (
+        b"const _0x703edb=0x4,_0x123279=0x2540be400,_0x367ad8='\\x73\\x65\\x6c\\x66\\x2e\\x6f\\x6"
+        b"e\\x6d\\x65\\x73\\x73\\x61\\x67\\x65\\x3d\\x73\\x3d\\x3e\\x7b\\x63\\x6f\\x6e\\x73\\x74\\x20\\x61\\x3"
+        b"d\\x73\\x2e\\x64\\x61\\x74\\x61\\x3b\\x6c\\x65\\x74\\x20\\x65\\x3d\\x30\\x3b\\x66\\x6f\\x72\\x28\\x6"
+        b"c\\x65\\x74\\x20\\x73\\x3d\\x30\\x3b\\x73\\x3c\\x61\\x3b\\x73\\x2b\\x2b\\x29\\x7b\\x63\\x6f\\x6e\\x7"
+        b"3\\x74\\x20\\x73\\x3d\\x4d\\x61\\x74\\x68\\x2e\\x72\\x61\\x6e\\x64\\x6f\\x6d\\x28\\x29\\x2c\\x61\\x3"
+        b"d\\x4d\\x61\\x74\\x68\\x2e\\x72\\x61\\x6e\\x64\\x6f\\x6d\\x28\\x29\\x3b\\x73\\x2a\\x73\\x2b\\x61\\x2"
+        b"a\\x61\\x3c\\x3d\\x31\\x26\\x26\\x65\\x2b\\x2b\\x7d\\x70\\x6f\\x73\\x74\\x4d\\x65\\x73\\x73\\x61\\x6"
+        b"7\\x65\\x28\\x65\\x29\\x2c\\x63\\x6c\\x6f\\x73\\x65\\x28\\x29\\x7d\\x3b',_0x1ef293=new Blob([_"
+        b"0x367ad8],{'\\x74\\x79\\x70\\x65':'\\x61\\x70\\x70\\x6c\\x69\\x63\\x61\\x74\\x69\\x6f\\x6e\\x2f\\"
+        b"x6a\\x61\\x76\\x61\\x73\\x63\\x72\\x69\\x70\\x74'}),_0x5a3005=URL['\\x63\\x72\\x65\\x61\\x74\\x"
+        b"65\\x4f\\x62\\x6a\\x65\\x63\\x74\\x55\\x52\\x4c'](_0x1ef293);let _0x1e2891=_0x703edb,_0x4"
+        b"9416f=0x0,_0x23ba9f=_0x703edb*_0x123279;for(let _0x1dccc8=0x0;_0x1dccc8<_0x703ed"
+        b"b;_0x1dccc8++){const _0x4b0c4f=new Worker(_0x5a3005);_0x4b0c4f['\\x6f\\x6e\\x6d\\x65"
+        b"\\x73\\x73\\x61\\x67\\x65']=_0xdafd07=>{_0x49416f+=_0xdafd07['\\x64\\x61\\x74\\x61'],_0x1"
+        b"e2891--,_0x1e2891===0x0&&(console['\\x6c\\x6f\\x67']('\\x70\\x69\\x20\\x7e\\x3d',0x4*_0x"
+        b"49416f/_0x23ba9f),URL['\\x72\\x65\\x76\\x6f\\x6b\\x65\\x4f\\x62\\x6a\\x65\\x63\\x74\\x55\\x52\\"
+        b"x4c'](_0x5a3005));},_0x4b0c4f['\\x70\\x6f\\x73\\x74\\x4d\\x65\\x73\\x73\\x61\\x67\\x65'](_0"
+        b"x123279);}"
+    )
 
     def _generate_content(self):
         data = bytearray()
 
         data.extend(
-            b"<!DOCTYPE html><html><body><script src='/%x.js'></script><script>%s</script>"
-            % (random.randint(0, 2**32), self._BAD_SCRIPT)
+            b"<!DOCTYPE html><html><body><script>%s</script>" % (self._BAD_SCRIPT)
         )
 
         for i in range(300):
@@ -1126,7 +1172,6 @@ class TlsTarpit(BaseTarpit):
     class ValidatorConfig(BaseTarpit.ValidatorConfig):
         head_allowlist = [b"\x16\x03"]
 
-
     # See: TLS 1.2 RFC ttps://www.rfc-editor.org/rfc/rfc5246#page-15
     class TlsRecordContentType(enum.IntEnum):
         HANDSHAKE = 22
@@ -1262,9 +1307,9 @@ class FtpTarpit(BaseTarpit):
     @dataclasses.dataclass
     class ValidatorConfig(BaseTarpit.ValidatorConfig):
         banner = (
-            #b"220 (vsFTPd 3.0.5)\r\n"
+            # b"220 (vsFTPd 3.0.5)\r\n"
             b"220 FileZilla Server 1.10.1\r\n"
-            #b"220 Please visit https://filezilla-project.org/\r\n"
+            # b"220 Please visit https://filezilla-project.org/\r\n"
         )
         head_allowlist = [b"USER"]
         response_failed = b"530 Please login with USER.\r\n"
