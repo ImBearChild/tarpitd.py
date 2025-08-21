@@ -272,14 +272,20 @@ access log.
 
 #### `main=` (str)
 
-Path to the main log file. Sepcial value `<stdout>` and `<stderr>` is
+Path to the main log file. Special value `<stdout>` and `<stderr>` is
 supported.
 
 Default is `<stderr>`.
 
+#### `level=` (str)
+
+Log level.
+
+Accept: `debug`, `info`, `warning`, `error`, `critical`. Default is `warning`.
+
 #### `client_trace=` (str)
 
-Path to the client_trace log file. Sepcial value `<stdout>` and `<stderr>` is
+Path to the client_trace log file. Special value `<stdout>` and `<stderr>` is
 supported.
 
 Default is `<stdout>`.
@@ -343,7 +349,6 @@ import typing
 import copy
 
 # module for cli use only will be import when needed
-
 
 class BytesLiteralEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -766,6 +771,14 @@ class HttpTarpit(BaseTarpit):
             await self.send_raw(
                 b"Server: Apache/2.4.9\r\nX-Powered-By: PHP/5.1.2-1+b1\r\n"
             )
+            # Note: There should be a Date header
+            #       But we just omit it
+            # https://www.rfc-editor.org/rfc/rfc9110.html
+            # An origin server with a clock (as defined in Section 5.6.7) MUST 
+            # generate a Date header field in all 2xx (Successful), 
+            # 3xx (Redirection), and 4xx (Client Error) responses, 
+            # and MAY generate a Date header 
+            # field in 1xx (Informational) and 5xx (Server Error) responses.
             pass
 
         async def send_header(self, keyword: bytes, value: bytes):
@@ -828,6 +841,17 @@ class HttpOkTarpit(HttpTarpit):
         await connection.send_content(b"DUCK!")
         # Left close to wrapped handler
         # await connection.close()
+
+
+class HttpFakeAuthTarpit(HttpTarpit):
+    PATTERN_NAME: str = "http_fake_auth"
+
+    async def _http_handler(self, connection):
+        await connection.send_status_line(401)
+        await connection.send_header(
+            b"WWW-Authenticate", b'Basic realm="Server"'
+        )
+        await connection.send_content(b"401 Unauthorized")
 
 
 class HttpEndlessHeaderTarpit(HttpTarpit):
@@ -1428,14 +1452,16 @@ def run_from_cli(args):
         args.verbose = 0
         # logger.setLevel(logging.WARNING)
         config["logging"]["level"] = "warning"
-        config["logging"]["fmt"]="[%(levelname)-8s] %(message)s"
+        config["logging"]["fmt"] = "[%(levelname)-8s] %(message)s"
     if args.verbose >= 1:
         config["logging"]["level"] = "info"
-        config["logging"]["fmt"]="[%(levelname)-8s - %(asctime)s] [%(name)s - %(funcName)s] %(message)s"
     if args.verbose >= 2:
         config["logging"]["level"] = "debug"
+        config["logging"]["fmt"] = (
+            "[%(levelname)-8s - %(asctime)s] [%(name)s - %(funcName)s] %(message)s"
+        )
     if args.verbose >= 3:
-        logging.warning("higher verbose level is not implemented")
+        logging.error("higher verbose level is not implemented")
 
     run_from_config_dict(config)
 
@@ -1460,6 +1486,7 @@ def get_log_handler(file_name_in_conf):
             return logging.FileHandler(file_name_in_conf)
 
     pass
+
 
 def get_log_level(level_in_conf):
     match level_in_conf:
@@ -1530,19 +1557,19 @@ def dict_deep_update(
 
 
 def run_from_config_dict(config: dict):
-    logging.warning("tarpid.py is running")
     DEFAULT_CONF: typing.Final[dict] = {
         "logging": {
             "main": "<stderr>",
-            "level": "warning",
+            "level": "info",
             "fmt": "[%(levelname)-8s] %(message)s",
             "client_trace": "<stdout>",
         },
     }
     server = []
 
-    merged_config = dict_deep_update(DEFAULT_CONF,config,copy_dest=True,list_strategy="extend")
-    print(merged_config)
+    merged_config = dict_deep_update(
+        DEFAULT_CONF, config, copy_dest=True, list_strategy="extend"
+    )
 
     ct_enabled = False
     for name, tarpit_config in merged_config["tarpits"].items():
@@ -1571,9 +1598,11 @@ def run_from_config_dict(config: dict):
         formatter = logging.Formatter("%(message)s")
         handler.setFormatter(formatter)
         ct_logger.addHandler(handler)
-        logging.info("saving client trace to `%s`", merged_config["logging"]["client_trace"])
+        logging.info(
+            "saving client trace to `%s`", merged_config["logging"]["client_trace"]
+        )
     else:
-        logging.debug("no tarpit configured with client_trace, skip it")
+        logging.info("no tarpit configured with client_trace, will not log it")
 
     tarpit_classes: list[BaseTarpit] = get_all_subclasses(BaseTarpit)
     available_tarpits: dict[str, typing.Any] = {}
@@ -1619,6 +1648,8 @@ def display_manual_unix(name):
 
 
 def main_cli():
+    logging.basicConfig(format="[%(levelname)-8s] %(message)s", level=logging.ERROR)
+
     import argparse
 
     parser = argparse.ArgumentParser(

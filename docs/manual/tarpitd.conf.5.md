@@ -48,15 +48,23 @@ Enable logging of client access. Client validation result is logged with access 
 
 #### `main=` (str)
 
-Path to the main log file. Sepcial value `<stdout>` and `<stderr>` is supported.
+Path to the main log file. Special value `<stdout>` and `<stderr>` is supported.
 
 Default is `<stderr>`.
 
+#### `level=` (str)
+
+Log level. 
+
+Accept: `debug`, `info`, `warning`, `error`, `critical`. Default is `warning`.
+
 #### `client_trace=` (str)
 
-Path to the client_trace log file. Sepcial value `<stdout>` and `<stderr>` is supported.
+Path to the client_trace log file. Special value `<stdout>` and `<stderr>` is supported.
 
 Default is `<stdout>`.
+
+
 
 
 ## Example
