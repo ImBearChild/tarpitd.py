@@ -45,13 +45,13 @@ Validate the client before sending a response.
 Enable logging of client access. Client validation result is logged with access log.
 
 ## `[logging]` Table
-<!--
+
 #### `main=` (str)
 
 Path to the main log file. Sepcial value `<stdout>` and `<stderr>` is supported.
 
 Default is `<stderr>`.
--->
+
 #### `client_trace=` (str)
 
 Path to the client_trace log file. Sepcial value `<stdout>` and `<stderr>` is supported.
@@ -61,33 +61,31 @@ Default is `<stdout>`.
 
 ## Example
 
-```toml
-[tarpits]
-[tarpits.my_cool_ssh_tarpit]
-pattern = "ssh_trans_hold"
-client_trace = true
-client_valiation = true
-max_clients = 8152
-rate_limit = -2
-bind = [{ host = "127.0.0.1", port = "2222" }]
+  [tarpits]
+  [tarpits.my_cool_ssh_tarpit]
+  pattern = "ssh_trans_hold"
+  client_trace = true
+  client_valiation = true
+  max_clients = 8152
+  rate_limit = -2
+  bind = [{ host = "127.0.0.1", port = "2222" }]
 
-[tarpits.http_tarpit]
-pattern = "http_endless_header"
-bind = [
-  { host = "127.0.0.1", port = "8080" },
-  { host = "::1", port = "8888" },
-]
+  [tarpits.http_tarpit]
+  pattern = "http_endless_header"
+  bind = [
+    { host = "127.0.0.1", port = "8080" },
+    { host = "::1", port = "8888" },
+  ]
 
-[tarpits.tls_tarpit]
-pattern = "tls_slow_hello"
-rate_limit = 1
-bind = [
-  { host = "127.0.0.1", port = "8443" },
-]
+  [tarpits.tls_tarpit]
+  pattern = "tls_slow_hello"
+  rate_limit = 1
+  bind = [
+    { host = "127.0.0.1", port = "8443" },
+  ]
 
-[logging]
-client_trace = "./client_trace.log"
-```
+  [logging]
+  client_trace = "./client_trace.log"
 
 ## AUTHOR
 
