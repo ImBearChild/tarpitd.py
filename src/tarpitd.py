@@ -123,8 +123,8 @@ Tested with: OpenSSH
 endlessh is a well-known SSH tarpit that traps SSH clients by sending endless
 banner messages. Although named “endlessh”, it does not implement the full SSH
 protocol; it simply emits continuous banner data. As a result, port scanners
-(such as nmap and censys) will not mark the port as running a true SSH
-service. tarpitd.py have this problem fixed by examining the client and
+(such as nmap and censys) will not mark the original version as running a true
+SSH service. tarpitd.py have this problem fixed by examining the client and
 sending SSH identifier to scanners.
 
 #### ssh_trans_hold
@@ -268,12 +268,16 @@ Validate the client before sending a response.
 Enable logging of client access. Client validation result is logged with
 access log.
 
-## `[logging]` Table <!-- #### `main=` (str)
+## `[logging]` Table
+
+#### `main=` (str)
 
 Path to the main log file. Sepcial value `<stdout>` and `<stderr>` is
 supported.
 
-Default is `<stderr>`. --> #### `client_trace=` (str)
+Default is `<stderr>`.
+
+#### `client_trace=` (str)
 
 Path to the client_trace log file. Sepcial value `<stdout>` and `<stderr>` is
 supported.
@@ -282,20 +286,31 @@ Default is `<stdout>`.
 
 ## Example
 
-```toml [tarpits] [tarpits.my_cool_ssh_tarpit] pattern = "ssh_trans_hold"
-client_trace = true client_valiation = true max_clients = 8152 rate_limit = -2
-bind = [{ host = "127.0.0.1", port = "2222" }]
+  [tarpits]
+  [tarpits.my_cool_ssh_tarpit]
+  pattern = "ssh_trans_hold"
+  client_trace = true
+  client_valiation = true
+  max_clients = 8152
+  rate_limit = -2
+  bind = [{ host = "127.0.0.1", port = "2222" }]
 
-[tarpits.http_tarpit] pattern = "http_endless_header" bind = [
-  { host = "127.0.0.1", port = "8080" },
-  { host = "::1", port = "8888" },
-]
+  [tarpits.http_tarpit]
+  pattern = "http_endless_header"
+  bind = [
+    { host = "127.0.0.1", port = "8080" },
+    { host = "::1", port = "8888" },
+  ]
 
-[tarpits.tls_tarpit] pattern = "tls_slow_hello" rate_limit = 1 bind = [
-  { host = "127.0.0.1", port = "8443" },
-]
+  [tarpits.tls_tarpit]
+  pattern = "tls_slow_hello"
+  rate_limit = 1
+  bind = [
+    { host = "127.0.0.1", port = "8443" },
+  ]
 
-[logging] client_trace = "./client_trace.log" ```
+  [logging]
+  client_trace = "./client_trace.log"
 
 ## AUTHOR
 
@@ -325,6 +340,7 @@ import json
 import dataclasses
 import time
 import typing
+import copy
 
 # module for cli use only will be import when needed
 
@@ -1407,6 +1423,20 @@ def run_from_cli(args):
             "client_trace": client_trace,
         }
         number += 1
+
+    if not args.verbose:
+        args.verbose = 0
+        # logger.setLevel(logging.WARNING)
+        config["logging"]["level"] = "warning"
+        config["logging"]["fmt"]="[%(levelname)-8s] %(message)s"
+    if args.verbose >= 1:
+        config["logging"]["level"] = "info"
+        config["logging"]["fmt"]="[%(levelname)-8s - %(asctime)s] [%(name)s - %(funcName)s] %(message)s"
+    if args.verbose >= 2:
+        config["logging"]["level"] = "debug"
+    if args.verbose >= 3:
+        logging.warning("higher verbose level is not implemented")
+
     run_from_config_dict(config)
 
 
@@ -1431,32 +1461,117 @@ def get_log_handler(file_name_in_conf):
 
     pass
 
+def get_log_level(level_in_conf):
+    match level_in_conf:
+        case "debug":
+            return logging.DEBUG
+        case "info":
+            return logging.INFO
+        case "warning":
+            return logging.WARNING
+        case "error":
+            return logging.ERROR
+        case "critical":
+            return logging.CRITICAL
+
+
+def dict_deep_update(
+    dest: typing.Dict[str, typing.Any],
+    src: typing.Dict[str, typing.Any],
+    *,
+    list_strategy: str = "replace",  # "replace" or "extend"
+    copy_dest: bool = False,
+    allow_types: typing.Optional[typing.Iterable[type]] = None,
+) -> typing.Dict[str, typing.Any]:
+    """
+    Deeply update `dest` with `src`.
+    - list_strategy: "replace" (src list overwrites) or "extend" (append items from src)
+    - copy_dest: if True, operate on a deep copy of dest and return it; otherwise modify dest in-place.
+    - allow_types: optional iterable of types that are allowed to be merged; if None, no extra restriction.
+    """
+    if list_strategy not in ("replace", "extend"):
+        raise ValueError("list_strategy must be 'replace' or 'extend'")
+
+    allowed = set(allow_types) if allow_types is not None else None
+
+    target = copy.deepcopy(dest) if copy_dest else dest
+
+    def _merge(a: typing.Any, b: typing.Any):
+        # a is existing value in target, b is source value to merge
+        # Return merged value (and mutate a in-place when appropriate)
+        if isinstance(b, dict) and isinstance(a, dict):
+            for k, v in b.items():
+                if k in a:
+                    a[k] = _merge(a[k], v)
+                else:
+                    a[k] = copy.deepcopy(v)
+            return a
+
+        if isinstance(b, list) and isinstance(a, list):
+            if list_strategy == "replace":
+                return copy.deepcopy(b)
+            else:  # extend
+                a.extend(copy.deepcopy(b))
+                return a
+
+        if allowed is not None:
+            if not any(isinstance(b, t) for t in allowed):
+                return copy.deepcopy(b)
+
+        return copy.deepcopy(b)
+
+    for key, val in src.items():
+        if key in target:
+            target[key] = _merge(target[key], val)
+        else:
+            target[key] = copy.deepcopy(val)
+
+    return target
+
 
 def run_from_config_dict(config: dict):
     logging.warning("tarpid.py is running")
+    DEFAULT_CONF: typing.Final[dict] = {
+        "logging": {
+            "main": "<stderr>",
+            "level": "warning",
+            "fmt": "[%(levelname)-8s] %(message)s",
+            "client_trace": "<stdout>",
+        },
+    }
     server = []
 
+    merged_config = dict_deep_update(DEFAULT_CONF,config,copy_dest=True,list_strategy="extend")
+    print(merged_config)
+
     ct_enabled = False
-    for name, tarpit_config in config["tarpits"].items():
+    for name, tarpit_config in merged_config["tarpits"].items():
         ct_enabled = ct_enabled or tarpit_config.get("client_trace")
 
-    # Setup logger
+    # Setup main logger
+    logger = logging.getLogger()
+    logger.setLevel(get_log_level(merged_config["logging"]["level"]))
+
+    formatter = logging.Formatter(
+        fmt=merged_config["logging"]["fmt"],
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    handler = get_log_handler(merged_config["logging"]["main"])
+    handler.setFormatter(formatter)
+
+    # TODO: Better logic for clean handlers
+    logger.handlers = []
+    logger.addHandler(handler)
+
+    # Setup client trace logger
     if ct_enabled:
-        default_logging_conf = {"main": "<stderr>", "client_trace": "<stdout>"}
-        if config.get("logging"):
-            default_logging_conf.update(config["logging"])
-        config["logging"] = default_logging_conf
         ct_logger = logging.getLogger(__name__ + ".client_trace")
         ct_logger.propagate = False
-        if f_name := config["logging"]["client_trace"]:
-            handler = get_log_handler(f_name)
-        else:
-            handler = get_log_handler("<stdout>")
-            config["logging"]["client_trace"] = "<default_stdout>"
+        handler = get_log_handler(merged_config["logging"]["client_trace"])
         formatter = logging.Formatter("%(message)s")
         handler.setFormatter(formatter)
         ct_logger.addHandler(handler)
-        logging.info("saving client trace to `%s`", config["logging"]["client_trace"])
+        logging.info("saving client trace to `%s`", merged_config["logging"]["client_trace"])
     else:
         logging.debug("no tarpit configured with client_trace, skip it")
 
@@ -1587,33 +1702,6 @@ def main_cli():
     )
 
     args = parser.parse_args()
-
-    logger = logging.getLogger()
-    if not args.verbose:
-        args.verbose = 0
-        logger.setLevel(logging.WARNING)
-        formatter = logging.Formatter(
-            fmt="[%(levelname)-8s] %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-        handler = logging.StreamHandler(sys.stderr)
-        handler.setFormatter(formatter)
-        logger.handlers = []
-        logger.addHandler(handler)
-    if args.verbose >= 1:
-        logger.setLevel(logging.INFO)
-        formatter = logging.Formatter(
-            fmt="[%(levelname)-8s - %(asctime)s] [%(name)s - %(funcName)s] %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-        handler = logging.StreamHandler(sys.stderr)
-        handler.setFormatter(formatter)
-        logger.handlers = []
-        logger.addHandler(handler)
-    if args.verbose >= 2:
-        logger.setLevel(logging.DEBUG)
-    if args.verbose >= 3:
-        logging.warning("higher verbose level is not implemented")
 
     if args.manual:
         display_manual_unix(args.manual)
