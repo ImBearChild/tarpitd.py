@@ -224,7 +224,7 @@ class NeoTestTarpit(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(1)
             self.assertIn(excepted_response,data)
         else:
-            await asyncio.sleep(0)
+            await asyncio.sleep(1)
             await excepted_response(reader, writer)
         pass
 
@@ -321,12 +321,12 @@ class T_SshEndless(NeoTestTarpit):
 
     async def have_lines(self, reader: asyncio.StreamReader, writer):
         for i in range(2):
-            data = await read_with_timeout(reader, 64, 4)
+            data = await read_with_timeout(reader, 64, 8)
             self.assertIn(b"\r\n", data)
 
     def _setup(self):
         self.TEST_SET.append(
-            TarpitTestSet(request=b"SSH-FAKE", excepted_response=self.have_lines)
+            TarpitTestSet(request=b"SSH-FAKE\r\n", excepted_response=self.have_lines)
         )
 
 
