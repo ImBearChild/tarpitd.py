@@ -557,6 +557,27 @@ class BaseTarpit:
         )
         pass
 
+    async def __handle_valid_client(self, reader, tarpit_writer, writer):
+        tarpit_writer.change_rate_limit(self._config.rate_limit)
+        await self._handle_client(reader, tarpit_writer)
+        await writer.drain()
+        await self.__drain_remaining_data(reader)
+        writer.close()
+        await writer.wait_closed()
+
+    async def __handle_invalid_client(self, writer):
+        writer.close()
+        await asyncio.sleep(random.randrange(16, 32))
+        await writer.wait_closed()
+
+    async def __drain_remaining_data(self, reader):
+        for _ in range(4):  # 4 second timeout, 1 kb data
+            try:
+                if await asyncio.wait_for(reader.read(256), 1) == b"":
+                    break
+            except asyncio.TimeoutError:
+                pass
+
     async def __handler(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ):
@@ -565,31 +586,16 @@ class BaseTarpit:
                 self.__runtime_log_client(writer, "open")
                 tarpit_writer = TarpitWriter(32, writer=writer)
                 result = await self.__runtime_validate_client(reader, tarpit_writer)
-                if result.expected:  # Only log for passed check
-                    if result.data:
+                if result.expected:
+                    if result.data: # result.data == None means skipped
                         self.__runtime_log_client(
                             writer, "exam", comment=result._asdict()
                         )
-                    tarpit_writer.change_rate_limit(self._config.rate_limit)
-                    await self._handle_client(reader, tarpit_writer)
-                    await writer.drain()
-
-                    for i in range(4):  # 4 second timeout, 1 kb data
-                        try:
-                            if await asyncio.wait_for(reader.read(256), 1) == b"":
-                                break
-                        except asyncio.TimeoutError:
-                            pass
-                        pass
-
-                    writer.close()
-                    await writer.wait_closed()
+                    await self.__handle_valid_client(reader, tarpit_writer, writer)
                 else:
                     self.__runtime_log_client(writer, "exam", comment=result._asdict())
-                    writer.close()
-                    await asyncio.sleep(random.randrange(16, 32))
-                    await writer.wait_closed()
-            except (  # Log client
+                    await self.__handle_invalid_client(writer)
+            except (
                 BrokenPipeError,
                 ConnectionAbortedError,
                 ConnectionResetError,
