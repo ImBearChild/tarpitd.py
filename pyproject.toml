@@ -38,7 +38,7 @@ sources = ["src"]
 [tool.hatch.env]
 requires = ["hatch-mkdocs"]
 
-[tool.hatch.env.collectors.mkdocs.docs]
+[tool.hatch.env.mkdocs.docs]
 path = "mkdocs.yml"
 
 [tool.hatch.envs.dev]
@@ -59,3 +59,6 @@ python = ["3.11"]
 [tool.tombischema]
 enabled = true
 strict = false
+
+[tool.ruff]
+line-length = 80
