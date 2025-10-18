@@ -125,7 +125,8 @@ banner messages. Although named “endlessh”, it does not implement the full S
 protocol; it simply emits continuous banner data. As a result, port scanners
 (such as nmap and censys) will not mark the original version as running a true
 SSH service. tarpitd.py have this problem fixed by examining the client and
-sending SSH identifier to scanners.
+sending SSH identifier to scanners. What's more, openssh will only accept 1024
+line of banner before disconnect.
 
 #### ssh_trans_hold
 
@@ -350,6 +351,7 @@ import copy
 
 # module for cli use only will be import when needed
 
+
 class BytesLiteralEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, bytes):
@@ -406,9 +408,9 @@ class TarpitWriter:
         else:
             write_inner = self._write_with_speedlimit
 
-        self.write_and_drain: typing.Callable[[bytes], typing.Awaitable[None]] = (
-            write_inner
-        )
+        self.write_and_drain: typing.Callable[
+            [bytes], typing.Awaitable[None]
+        ] = write_inner
 
     def __init__(self, rate, writer: asyncio.StreamWriter) -> None:
         self.writer = writer
@@ -495,7 +497,9 @@ class BaseTarpit:
 
         return
 
-    async def _handle_client(self, reader: asyncio.StreamReader, writer: TarpitWriter):
+    async def _handle_client(
+        self, reader: asyncio.StreamReader, writer: TarpitWriter
+    ):
         """
         Callback for providing service
 
@@ -585,22 +589,30 @@ class BaseTarpit:
             try:
                 self.__runtime_log_client(writer, "open")
                 tarpit_writer = TarpitWriter(32, writer=writer)
-                result = await self.__runtime_validate_client(reader, tarpit_writer)
+                result = await self.__runtime_validate_client(
+                    reader, tarpit_writer
+                )
                 if result.expected:
-                    if result.data: # result.data == None means skipped
+                    if result.data:  # result.data == None means skipped
                         self.__runtime_log_client(
                             writer, "exam", comment=result._asdict()
                         )
-                    await self.__handle_valid_client(reader, tarpit_writer, writer)
+                    await self.__handle_valid_client(
+                        reader, tarpit_writer, writer
+                    )
                 else:
-                    self.__runtime_log_client(writer, "exam", comment=result._asdict())
+                    self.__runtime_log_client(
+                        writer, "exam", comment=result._asdict()
+                    )
                     await self.__handle_invalid_client(writer)
             except (
                 BrokenPipeError,
                 ConnectionAbortedError,
                 ConnectionResetError,
             ) as e:
-                self.__runtime_log_client(writer, "conn_error", comment={"err": str(e)})
+                self.__runtime_log_client(
+                    writer, "conn_error", comment={"err": str(e)}
+                )
             except asyncio.exceptions.CancelledError:
                 self.logger.debug("task cancelled")
             except WindowsError as e:  # type: ignore
@@ -649,7 +661,8 @@ class BaseTarpit:
 
         self._config.update_from_dict(config)
         self.logger.info(
-            "server config: {}".format(self._config), dataclasses.asdict(self._config)
+            "server config: {}".format(self._config),
+            dataclasses.asdict(self._config),
         )
         self.sem = asyncio.Semaphore(self._config.max_clients)
 
@@ -667,7 +680,9 @@ class BaseTarpit:
 
         # setup client_trace
         if self._config.client_trace:
-            self.client_trace_logger = logging.getLogger(__name__ + ".client_trace")
+            self.client_trace_logger = logging.getLogger(
+                __name__ + ".client_trace"
+            )
             self.__runtime_log_client = self.__log_client
         else:
             self.__runtime_log_client = _void
@@ -769,10 +784,13 @@ class HttpTarpit(BaseTarpit):
             else:
                 return bytes(data)
 
-        async def send_status_line(self, code: int, version: bytes = b"HTTP/1.1"):
+        async def send_status_line(
+            self, code: int, version: bytes = b"HTTP/1.1"
+        ):
             status = http.HTTPStatus(code)
             await self.writer.write_and_drain(
-                b"%s %d %s\r\n" % (version, status, bytes(status.phrase, "ASCII"))
+                b"%s %d %s\r\n"
+                % (version, status, bytes(status.phrase, "ASCII"))
             )
             await self.send_raw(
                 b"Server: Apache/2.4.9\r\nX-Powered-By: PHP/5.1.2-1+b1\r\n"
@@ -780,10 +798,10 @@ class HttpTarpit(BaseTarpit):
             # Note: There should be a Date header
             #       But we just omit it
             # https://www.rfc-editor.org/rfc/rfc9110.html
-            # An origin server with a clock (as defined in Section 5.6.7) MUST 
-            # generate a Date header field in all 2xx (Successful), 
-            # 3xx (Redirection), and 4xx (Client Error) responses, 
-            # and MAY generate a Date header 
+            # An origin server with a clock (as defined in Section 5.6.7) MUST
+            # generate a Date header field in all 2xx (Successful),
+            # 3xx (Redirection), and 4xx (Client Error) responses,
+            # and MAY generate a Date header
             # field in 1xx (Informational) and 5xx (Server Error) responses.
             pass
 
@@ -803,7 +821,9 @@ class HttpTarpit(BaseTarpit):
             if len(type_):
                 await self.send_header(b"Content-Type", type_)
             else:
-                await self.send_header(b"Content-Type", b"text/html; charset=UTF-8")
+                await self.send_header(
+                    b"Content-Type", b"text/html; charset=UTF-8"
+                )
 
             await self.send_header(b"Content-Length", b"%d" % len(content))
             if len(encoding):
@@ -962,7 +982,8 @@ class HttpBadHtmlTarpit(HttpPreGeneratedTarpit):
         data = bytearray()
 
         data.extend(
-            b"<!DOCTYPE html><html><body><script>%s</script>" % (self._BAD_SCRIPT)
+            b"<!DOCTYPE html><html><body><script>%s</script>"
+            % (self._BAD_SCRIPT)
         )
 
         for i in range(300):
@@ -1000,7 +1021,9 @@ class HttpDeflateTarpit(HttpPreGeneratedTarpit):
             case "deflate":
                 compressobj = zlib.compressobj(level=9, wbits=15)
         self._make_deflate(compressobj)
-        return self.Content(data=self._deflate_content, encoding=self.compression_type)
+        return self.Content(
+            data=self._deflate_content, encoding=self.compression_type
+        )
 
     pass
 
@@ -1243,7 +1266,11 @@ class TlsTarpit(BaseTarpit):
     def make_handshake_frag(
         cls, handshake_type: TlsHandshakeType, body: bytes
     ) -> bytes:
-        frag = handshake_type.to_bytes(1, "big") + len(body).to_bytes(3, "big") + body
+        frag = (
+            handshake_type.to_bytes(1, "big")
+            + len(body).to_bytes(3, "big")
+            + body
+        )
         return frag
 
     pass
@@ -1288,11 +1315,12 @@ class TlsSlowHelloTarpit(TlsTarpit):
         session_ticket_data_length = 512
         session_id_length = 32  # Session ID 32 max
 
-        renego_info_ext = b"\xff\x01\x00\x01\x00"  # 5 bytes
-        ec_points_ext = (
-            b"\x00\x0b\x00\x02\x01\x00"  # 6 bytes (type=0x0b, len=2, data=01 00)
-        )
-        ems_ext = b"\x00\x17\x00\x00"  # 4 bytes (type=0x17, len=0)
+        renego_info_ext = b"\xff\x01\x00\x01\x00"
+        # 5 bytes
+        ec_points_ext = b"\x00\x0b\x00\x02\x01\x00"
+        # 6 bytes (type=0x0b, len=2, data=01 00)
+        ems_ext = b"\x00\x17\x00\x00"
+        # 4 bytes (type=0x17, len=0)
 
         ticket_data = b"\x00" * session_ticket_data_length
         ticket_ext_len = session_ticket_data_length.to_bytes(2, "big")
@@ -1304,7 +1332,8 @@ class TlsSlowHelloTarpit(TlsTarpit):
         padding_ext = b"\x00\x15" + padding_ext_len + padding_data  # 4 + len
 
         extensions_data = (
-            renego_info_ext + ec_points_ext + ems_ext + ticket_ext + padding_ext
+            renego_info_ext + ec_points_ext + \
+                ems_ext + ticket_ext + padding_ext
         )
         extensions_total_len = len(extensions_data).to_bytes(
             2, "big"
@@ -1316,7 +1345,9 @@ class TlsSlowHelloTarpit(TlsTarpit):
         session_id_value = (
             b"\x11" * session_id_length
         )  # Session ID Value (max 32 bytes)
-        cipher_suite = b"\xc0\x2f"  # TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 (example)
+        cipher_suite = (
+            b"\xc0\x2f"  # TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 (example)
+        )
         compression_method = b"\x00"  # Null compression
 
         handshake_content = (
@@ -1369,7 +1400,9 @@ class FtpEndlessMotdTarpit(FtpTarpit):
     async def _handle_client(self, reader, writer: TarpitWriter):
         await writer.write_and_drain(b"230-NOTICE: \r\n")
         while True:
-            await writer.write_and_drain(b"230-%x\r\n" % random.randint(0, 2**32))
+            await writer.write_and_drain(
+                b"230-%x\r\n" % random.randint(0, 2**32)
+            )
 
 
 class SmtpTarpit(BaseTarpit):
@@ -1381,7 +1414,7 @@ class SmtpTarpit(BaseTarpit):
     class ValidatorConfig(BaseTarpit.ValidatorConfig):
         banner = (
             b"220 [127.0.0.1] ESMTP Sendmail 8.16.1/8.16.1; "
-            b"Thu, 01 Jan 1970 00:00:00 +0000\r\n"
+            b"Thu, 01 Sep 1993 00:00:00 +0000\r\n"
         )
         head_allowlist = [b"EHLO", b"HELO"]
         response_failed = b"502 Error: command not implemented.\r\n"
@@ -1397,7 +1430,9 @@ class SmtpEndlessEhloTarpit(SmtpTarpit):
             b"250-[127.0.0.1] Hello [192.168.1.1], pleased to meet you \r\n"
         )
         while True:
-            await writer.write_and_drain(b"250-%x\r\n" % random.randint(0, 2**32))
+            await writer.write_and_drain(
+                b"250-%x\r\n" % random.randint(0, 2**32)
+            )
 
 
 async def async_run_server(server):
@@ -1412,7 +1447,9 @@ async def async_run_server(server):
                 except OSError as e:
                     logging.error("failed to run server. err: `%s`", e)
     except asyncio.CancelledError:
-        logging.warning("`async_run_server` task cancelled. shutting down tarpitd.")
+        logging.warning(
+            "`async_run_server` task cancelled. shutting down tarpitd."
+        )
     finally:
         logging.info("shutdown complete.")
 
@@ -1448,7 +1485,9 @@ def run_from_cli(args):
         config["tarpits"][f"cli_{number}"] = {
             "pattern": p[0],
             "rate_limit": args.rate_limit,
-            "bind": [{"host": p[2].partition(":")[0], "port": p[2].partition(":")[2]}],
+            "bind": [
+                {"host": p[2].partition(":")[0], "port": p[2].partition(":")[2]}
+            ],
             "client_validation": client_validation,
             "client_trace": client_trace,
         }
@@ -1592,8 +1631,11 @@ def run_from_config_dict(config: dict):
     handler = get_log_handler(merged_config["logging"]["main"])
     handler.setFormatter(formatter)
 
-    # TODO: Better logic for clean handlers
-    logger.handlers = []
+    # Properly clean existing handlers
+    for h in logger.handlers:
+        logger.removeHandler(h)
+        if hasattr(h, "close"):
+            h.close()
     logger.addHandler(handler)
 
     # Setup client trace logger
@@ -1605,7 +1647,8 @@ def run_from_config_dict(config: dict):
         handler.setFormatter(formatter)
         ct_logger.addHandler(handler)
         logging.info(
-            "saving client trace to `%s`", merged_config["logging"]["client_trace"]
+            "saving client trace to `%s`",
+            merged_config["logging"]["client_trace"],
         )
     else:
         logging.info("no tarpit configured with client_trace, will not log it")
@@ -1620,7 +1663,9 @@ def run_from_config_dict(config: dict):
 
     for name, tarpit_config in config["tarpits"].items():
         tarpit_config["pattern"] = tarpit_config["pattern"].casefold()
-        logging.info("tarpitd is setting up %s (%s)", tarpit_config["pattern"], name)
+        logging.info(
+            "tarpitd is setting up %s (%s)", tarpit_config["pattern"], name
+        )
 
         logging.debug("config: %s", tarpit_config)
 
@@ -1632,11 +1677,15 @@ def run_from_config_dict(config: dict):
                 **real_tarpit_conf
             )
         else:
-            logging.error("pattern %s does not exist!", tarpit_config["pattern"])
+            logging.error(
+                "pattern %s does not exist!", tarpit_config["pattern"]
+            )
             exit()
 
         logging.info("server bind: {}".format(tarpit_config["bind"]))
-        logging.warning("tarpitd is serving %s (%s)", tarpit_config["pattern"], name)
+        logging.warning(
+            "tarpitd is serving %s (%s)", tarpit_config["pattern"], name
+        )
         for i in tarpit_config["bind"]:
             server.append(pit.create_server(host=i["host"], port=i["port"]))
 
@@ -1654,7 +1703,9 @@ def display_manual_unix(name):
 
 
 def main_cli():
-    logging.basicConfig(format="[%(levelname)-8s] %(message)s", level=logging.ERROR)
+    logging.basicConfig(
+        format="[%(levelname)-8s] %(message)s", level=logging.ERROR
+    )
 
     import argparse
 

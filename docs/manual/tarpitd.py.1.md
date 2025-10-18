@@ -89,7 +89,7 @@ Note: The deflate compression algorithm has its maximum compression rate limit a
 
 Tested with: OpenSSH
 
-endlessh is a well-known SSH tarpit that traps SSH clients by sending endless banner messages. Although named “endlessh”, it does not implement the full SSH protocol; it simply emits continuous banner data. As a result, port scanners (such as nmap and censys) will not mark the original version as running a true SSH service. tarpitd.py have this problem fixed by examining the client and sending SSH identifier to scanners.
+endlessh is a well-known SSH tarpit that traps SSH clients by sending endless banner messages. Although named “endlessh”, it does not implement the full SSH protocol; it simply emits continuous banner data. As a result, port scanners (such as nmap and censys) will not mark the original version as running a true SSH service. tarpitd.py have this problem fixed by examining the client and sending SSH identifier to scanners. What's more, openssh will only accept 1024 line of banner before disconnect.
 
 #### ssh_trans_hold
 

@@ -65,8 +65,6 @@ Path to the client_trace log file. Special value `<stdout>` and `<stderr>` is su
 Default is `<stdout>`.
 
 
-
-
 ## Example
 
   [tarpits]
