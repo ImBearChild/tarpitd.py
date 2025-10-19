@@ -356,6 +356,8 @@ class BytesLiteralEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, bytes):
             return repr(obj)
+        elif isinstance(obj, bytearray):
+            return repr(obj)
         return json.JSONEncoder.default(self, obj)
 
 
@@ -369,16 +371,16 @@ class TarpitWriter:
         for b in range(0, len(data)):
             await asyncio.sleep(abs(self.rate))
             try:  # Handle Exception, because we are in loop
-                self.writer.write(data[b : b + 1])
-                await self.writer.drain()
+                self.__writer.write(data[b : b + 1])
+                await self.__writer.drain()
             except (ConnectionResetError, BrokenPipeError) as e:
                 raise e
                 return
-        await self.writer.drain()
+        await self.__writer.drain()
 
     async def _write_normal(self, data):
-        self.writer.write(data)
-        await self.writer.drain()
+        self.__writer.write(data)
+        await self.__writer.drain()
 
     async def _write_with_speedlimit(self, data):
         """
@@ -390,13 +392,13 @@ class TarpitWriter:
         for b in range(0, count):
             await asyncio.sleep(1)
             try:
-                self.writer.write(data[b * self.rate : (b + 1) * self.rate])
-                await self.writer.drain()
+                self.__writer.write(data[b * self.rate : (b + 1) * self.rate])
+                await self.__writer.drain()
             except (ConnectionResetError, BrokenPipeError) as e:
                 raise e
                 return
-        self.writer.write(data[(count) * self.rate :])
-        await self.writer.drain()
+        self.__writer.write(data[(count) * self.rate :])
+        await self.__writer.drain()
 
     def change_rate_limit(self, rate: int):
         # logging.debug(f"rate limit: {rate}")
@@ -412,8 +414,9 @@ class TarpitWriter:
             [bytes], typing.Awaitable[None]
         ] = write_inner
 
+    # TODO Change it to __init__(self, writer: asyncio.StreamWriter, rate = 64)
     def __init__(self, rate, writer: asyncio.StreamWriter) -> None:
-        self.writer = writer
+        self.__writer = writer
         self.drain = writer.drain
         # self.close = writer.close
         # self.wait_closed = writer.wait_closed
@@ -421,14 +424,77 @@ class TarpitWriter:
         self.change_rate_limit(rate)
 
 
+class ReaderProtocol(typing.Protocol):
+    async def read(self, n: int = -1) -> bytes:
+        pass
+
+
+class TarpitReader:
+    """
+    Wraps a asyncio.StreamReader, for request logging.
+    """
+
+    def record_data(self, data: bytes):
+        if self.recording:
+            buffer_len = len(self.__buffer)
+            data_len = len(data)
+            if buffer_len + data_len < self.recording:
+                self.__buffer.extend(data)
+            elif buffer_len < self.recording:
+                free_space = self.recording - buffer_len
+                if data_len <= free_space:
+                    self.__buffer.extend(data)
+                else:
+                    self.__buffer.extend(data[0:free_space])
+            else:
+                pass
+
+    async def drain_data(self):
+        buffer_len = len(self.__buffer)
+        if buffer_len < self.recording:
+            try:
+                # This is some kind of tricky
+                # Because failed write will cause reader to raise exception
+                # See https://github.com/python/cpython/issues/75044
+                self.__reader._exception = None
+            except Exception:
+                pass
+            try:
+                self.__buffer.extend(
+                    await read_with_timeout(
+                        reader=self.__reader,
+                        n=self.recording - buffer_len,
+                        timeout=1,
+                    )
+                )
+            except Exception:
+                pass
+        pass
+
+    def dump_data(self):
+        return self.__buffer
+
+    async def read(self, n=-1):
+        data = await self.__reader.read(n)
+        self.record_data(data)
+        return data
+
+    def __init__(self, recording, reader: asyncio.StreamReader) -> None:
+        self.__reader = reader
+        self.__buffer = bytearray()
+        self.recording = recording  # Zero is disable. default to 768
+
+    pass
+
+
 async def read_with_timeout(
-    stream_reader: asyncio.StreamReader, n: int, timeout: float
+    reader: ReaderProtocol, n: int, timeout: float
 ) -> bytes:
     data = bytearray()
     try:
         async with asyncio.timeout(timeout):
             while len(data) < n:
-                chunk = await stream_reader.read(n - len(data))
+                chunk = await reader.read(n - len(data))
                 if not chunk:
                     break
                 data.extend(chunk)
@@ -444,7 +510,7 @@ class BaseTarpit:
 
     PATTERN_NAME: str = "_base_tarpit"
 
-    class ValidatorConfig(typing.NamedTuple):
+    class ValidatorConfig:
         head_allowlist: list[bytes] = []
         timeout: float = 2
         read_len: int = 4
@@ -458,7 +524,7 @@ class BaseTarpit:
         pass
 
     ValidatorCallable = typing.Callable[
-        [asyncio.StreamReader, TarpitWriter],
+        [TarpitReader, TarpitWriter],
         typing.Awaitable[ValidationResult],
     ]
 
@@ -475,7 +541,7 @@ class BaseTarpit:
         # https://docs.python.org/3/library/socket.html#socket.socket.listen
         # default backlog is 100
         rate_limit: int = 1
-        client_trace: bool = False
+        client_trace: int = 0
         client_validation: bool = True
 
         def update_from_dict(self, config_data: dict):
@@ -498,7 +564,7 @@ class BaseTarpit:
         return
 
     async def _handle_client(
-        self, reader: asyncio.StreamReader, writer: TarpitWriter
+        self, reader: ReaderProtocol, writer: TarpitWriter
     ):
         """
         Callback for providing service
@@ -541,7 +607,7 @@ class BaseTarpit:
     #     raise NotImplementedError
 
     def __log_client(
-        self, writer: asyncio.StreamWriter, event: str, comment=None
+        self, writer: asyncio.StreamWriter, event: str, meta=None
     ) -> None:
         self.client_trace_logger.info(
             json.dumps(
@@ -554,7 +620,7 @@ class BaseTarpit:
                         "peername": writer.get_extra_info("peername"),
                         "sockname": writer.get_extra_info("sockname"),
                     },
-                    "comment": comment,
+                    "meta": meta,
                 },
                 cls=BytesLiteralEncoder,
             )
@@ -589,20 +655,23 @@ class BaseTarpit:
             try:
                 self.__runtime_log_client(writer, "open")
                 tarpit_writer = TarpitWriter(32, writer=writer)
+                tarpit_reader = TarpitReader(
+                    768, reader=reader
+                )  # TODO Add option
                 result = await self.__runtime_validate_client(
-                    reader, tarpit_writer
+                    tarpit_reader, tarpit_writer
                 )
                 if result.expected:
                     if result.data:  # result.data == None means skipped
                         self.__runtime_log_client(
-                            writer, "exam", comment=result._asdict()
+                            writer, "exam", meta=result._asdict()
                         )
                     await self.__handle_valid_client(
-                        reader, tarpit_writer, writer
+                        tarpit_reader, tarpit_writer, writer
                     )
                 else:
                     self.__runtime_log_client(
-                        writer, "exam", comment=result._asdict()
+                        writer, "exam", meta=result._asdict()
                     )
                     await self.__handle_invalid_client(writer)
             except (
@@ -611,21 +680,30 @@ class BaseTarpit:
                 ConnectionResetError,
             ) as e:
                 self.__runtime_log_client(
-                    writer, "conn_error", comment={"err": str(e)}
+                    writer,
+                    "conn_error",
+                    meta={"err": e.__class__.__name__, "meg": str(e)},
                 )
             except asyncio.exceptions.CancelledError:
                 self.logger.debug("task cancelled")
             except WindowsError as e:  # type: ignore
                 if e.winerror == 121:
                     self.__runtime_log_client(
-                        writer, "conn_error", comment={"err": str(e)}
+                        writer,
+                        "conn_error",
+                        meta={"err": e.__class__.__name__, "meg": str(e)},
                     )
                 else:
                     self.logger.exception(e)
             except Exception as e:
                 self.logger.exception(e)
             finally:
-                self.__runtime_log_client(writer, "close")
+                await tarpit_reader.drain_data()  ## TODO: Parallel as writing
+                self.__runtime_log_client(
+                    writer,
+                    "close",
+                    meta={"request_data": tarpit_reader.dump_data()},
+                )
 
     async def create_server(self, host, port, start_serving=False):
         """
@@ -704,6 +782,12 @@ class BaseTarpit:
 
 
 # TODO Daymic
+
+
+class DynmanicTarpit(BaseTarpit):
+    pass
+
+
 class EchoTarpit(BaseTarpit):
     PATTERN_NAME: str = "_internal_echo"
 
@@ -1332,8 +1416,7 @@ class TlsSlowHelloTarpit(TlsTarpit):
         padding_ext = b"\x00\x15" + padding_ext_len + padding_data  # 4 + len
 
         extensions_data = (
-            renego_info_ext + ec_points_ext + \
-                ems_ext + ticket_ext + padding_ext
+            renego_info_ext + ec_points_ext + ems_ext + ticket_ext + padding_ext
         )
         extensions_total_len = len(extensions_data).to_bytes(
             2, "big"
