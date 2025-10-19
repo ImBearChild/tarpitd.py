@@ -42,11 +42,11 @@ requires = ["hatch-mkdocs"]
 path = "mkdocs.yml"
 
 [tool.hatch.envs.dev]
-dependencies = ["pytype", "yappi", "py-spy"]
+dependencies = ["pytype", "yappi", "py-spy","mypy"]
 python = "3.11"
 
 [tool.hatch.envs.dev.scripts]
-type = "pytype ./src/tarpitd.py"
+type = "pytype ./src/tarpitd.py; mypy ./src/tarpitd.py"
 
 [tool.hatch.envs.hatch-test]
 default-args = ["src"]
