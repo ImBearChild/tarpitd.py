@@ -25,7 +25,7 @@ The name of PATTERN is case-insensitive. For a complete list of supported patter
 
 #### `-r RATE, --rate-limit RATE`
 
-Set data transfer rate limit. Tarpits pattern has their own defalut value.
+Set data transfer rate limit. Tarpits pattern has their own default value.
 
 A positive value limits the transfer speed to RATE *bytes* per second. 
 A negative value causes the program to send one byte every |RATE| seconds (effectively 1/|RATE| *bytes* per second).
