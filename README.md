@@ -2,7 +2,7 @@
 
 [中文](./README.zh.md) | [Document](https://imbearchild.github.io/tarpitd.py)
 
-Tarpitd.py is a daemon that contains different response pattern, designed to emulate common internet services in a way that can disrupt client activities, potentially slowing them down or causing crashes. 
+Tarpitd.py is a daemon that implements various response patterns to emulate common internet services, designed to disrupt client activities by slowing them down or causing crashes. 
 
 This lightweight, single-file Python program is built for low resource consumption. Its primary goal is to deter malicious or misbehaving clients by intentionally decelerating their interactions.
 
@@ -20,7 +20,7 @@ python ./tarpitd.py -s ssh_trans_hold:0.0.0.0:2222
 ```
 
 The above command starts an ssh tarpit on your host, listening on port 2222. 
-Try connecting it with your ssh client, and watch it get stuck.
+Try connecting to it with your ssh client, and watch it get stuck.
 
 ## Installation
 
@@ -72,7 +72,7 @@ python misc/insert_doc.py
 For better experience, you can use [hatch](https://hatch.pypa.io/):
 
 ```bash
-hatch run tarpitd.py # Run in developemnt environment
+hatch run tarpitd.py # Run in development environment
 hatch test # Run pytest instead of plain unittest
 hatch run docs:serve # Serve mkdocs
 ```
