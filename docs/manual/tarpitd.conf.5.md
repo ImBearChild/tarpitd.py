@@ -71,7 +71,7 @@ Default is `<stdout>`.
   [tarpits.my_cool_ssh_tarpit]
   pattern = "ssh_trans_hold"
   client_trace = true
-  client_valiation = true
+  client_validation = true
   max_clients = 8152
   rate_limit = -2
   bind = [{ host = "127.0.0.1", port = "2222" }]
