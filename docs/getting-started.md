@@ -42,20 +42,20 @@ For clients connecting via HTTPS/TLS, you can use one of tarpitd.py’s TLS patt
 
 tarpitd.py allows you to launch multiple services in a single command, each using a different pattern, listening on different addresses and ports.
 
-*Example 1: Run both an HTTP tarpit and an TLS tarpit concurrently:*
+*Example 1: Run both an HTTP tarpit and an TLS tarpit concurrently with client tracing:*
 
 ```bash
-tarpitd.py -r -2 -s http_endless_header:0.0.0.0:8088 -s tls_slow_hello:127.0.0.1:8443
+tarpitd.py -t access --log-trace client.log -r -2 -s http_endless_header:0.0.0.0:8088 -s tls_slow_hello:127.0.0.1:8443
 ```
 
 In this case, the option `-r -2` makes the program wait 2 seconds for every byte sent, forcing each malicious request to endure a long delay.
 
 Want to fight back harder? How about sending resource-intensive deflate-compressed data? This pattern will force client consume excessive resources, making them CPU-intensive and memory-intensive.
 
-*Example 2: Consume client resources using a deflate-compressed HTML bomb:*
+*Example 2: Consume client resources using a deflate-compressed HTML bomb with request-level tracing:*
 
 ```bash
-tarpitd.py -r 1024 -s HTTP_DEFLATE_HTML_BOMB:0.0.0.0:8088
+tarpitd.py -t request -r 1024 -s HTTP_DEFLATE_HTML_BOMB:0.0.0.0:8088
 ```
 
 Here, the tool sends a 1 MB compressed package that, when decompressed, may consume up to 1 GB of memory, with invalid HTML can confuse the client. With a rate limit of 1 KB/s, you can control the output flow while imposing heavy resource usage on the client.
@@ -72,8 +72,8 @@ Instead of relying solely on command-line options, you can configure tarpitd.py 
 [tarpits]
 [tarpits.my_cool_ssh_tarpit]
 pattern = "ssh_trans_hold"
-client_trace = true
-client_valiation = true
+client_trace = 1
+client_validation = true
 max_clients = 8152
 rate_limit = -2
 bind = [{ host = "127.0.0.1", port = "2222" }]

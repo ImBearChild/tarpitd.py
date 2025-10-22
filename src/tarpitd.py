@@ -45,9 +45,17 @@ A positive value limits the transfer speed to RATE *bytes* per second. A
 negative value causes the program to send one byte every |RATE| seconds
 (effectively 1/|RATE| *bytes* per second).
 
-#### `-t, --trace-client [FILE]`
+#### `-t, --client-trace {none,access,request}`
 
-Log client access to FILE. Disabled by default.
+Set client trace level. Default is `none`.
+
+* `none`: No client tracing
+* `access`: Log client connections and disconnections
+* `request`: Log client connections, disconnections, and request data
+
+#### `--log-trace [FILE]`
+
+Specify output file for client trace logs. Optional.
 
 The output is in jsonl format. Logs to stdout if FILE is left blank.
 
@@ -264,10 +272,17 @@ bind port.
 
 Validate the client before sending a response.
 
-#### `client_trace=` (bool)
+#### `client_trace=` (int or str)
 
-Enable logging of client access. Client validation result is logged with
-access log.
+Set client trace level.
+
+Accepts integer values (0, 1, 2) or string values:
+
+* `0` or `"none"`: No client tracing
+* `1` or `"access"`: Log client connections and disconnections
+* `2` or `"request"`: Log client connections, disconnections, and request data
+
+Client validation result is logged with access log.
 
 ## `[logging]` Table
 
@@ -296,7 +311,7 @@ Default is `<stdout>`.
   [tarpits]
   [tarpits.my_cool_ssh_tarpit]
   pattern = "ssh_trans_hold"
-  client_trace = true
+  client_trace = 1
   client_validation = true
   max_clients = 8152
   rate_limit = -2
@@ -487,7 +502,10 @@ class TarpitReader:
         pass
 
     def dump_data(self):
-        return self.__buffer
+        if self._recording:
+            return self.__buffer
+        else:
+            return None
 
     async def read(self, n=-1):
         data = await self.__reader.read(n)
@@ -497,7 +515,7 @@ class TarpitReader:
     def __init__(self, recording, reader: asyncio.StreamReader) -> None:
         self.__reader = reader
         self.__buffer = bytearray()
-        self._recording = recording  # Zero is disable. default to 768
+        self._recording = recording  # Zero is disable.
 
     pass
 
@@ -535,7 +553,7 @@ class BaseTarpit:
         # https://docs.python.org/3/library/socket.html#socket.socket.listen
         # default backlog is 100
         rate_limit: int = 1
-        client_trace: int = 0
+        client_trace: int = 0  # 0 = none, 1=access, 2=request
         client_validation: bool = True
 
         def update_from_dict(self, config_data: dict):
@@ -560,7 +578,7 @@ class BaseTarpit:
     def __log_client(
         self, writer: asyncio.StreamWriter, event: str, meta=None
     ) -> None:
-        self.client_trace_logger.info(
+        self.client_trace_logger.warning(
             json.dumps(
                 {
                     "time": time.time(),
@@ -591,9 +609,13 @@ class BaseTarpit:
         async with self.sem:
             try:
                 tarpit_writer = TarpitWriter(128, writer=writer)
+                if self._config.client_trace >= 2:
+                    reader_background_log = 1024
+                else:
+                    reader_background_log = 0
                 tarpit_reader = TarpitReader(
-                    1024, reader=reader
-                )  # TODO Add option
+                    reader_background_log, reader=reader
+                )
                 self._runtime_log_client(writer, "open")
                 await self._handler(tarpit_reader, tarpit_writer)
             except (
@@ -723,7 +745,7 @@ class StaticTarpit(BaseTarpit):
         await tarpit_writer.drain()
 
     async def __drain_remaining_data(self, reader: TarpitReader, writer):
-        await reader.read(1024) # Read and save to buffer
+        await reader.read(1024)  # Read and save to buffer
         for _ in range(4):  # 4 second timeout, 1 kb data
             try:
                 if await asyncio.wait_for(reader.read(256), 1) == b"":
@@ -741,14 +763,16 @@ class StaticTarpit(BaseTarpit):
                     tarpit_writer, "validate", meta=result._asdict()
                 )
             tarpit_writer.change_rate_limit(self._config.rate_limit)
-            await asyncio.gather(  
+            await asyncio.gather(
                 # split read and write. we read and write at the same time.
                 # because we cant read after exception is raised.
                 self.__handle_valid_client(tarpit_reader, tarpit_writer),
                 self.__drain_remaining_data(tarpit_reader, tarpit_writer),
             )
         else:
-            self._runtime_log_client(tarpit_writer, "validate", meta=result._asdict())
+            self._runtime_log_client(
+                tarpit_writer, "validate", meta=result._asdict()
+            )
             await asyncio.sleep(random.randrange(16, 32))
         tarpit_writer.close()
         await tarpit_writer.wait_closed()
@@ -774,6 +798,7 @@ class StaticTarpit(BaseTarpit):
 
     async def handle_client(self, writer):
         pass
+
 
 class DynmanicTarpit(BaseTarpit):
     async def _handler(self, tarpit_reader, tarpit_writer):
@@ -1541,14 +1566,21 @@ def run_server(server):
 def run_from_cli(args):
     config: dict = {"tarpits": {}, "logging": {}}
     number = 0
-    if args.trace_client and args.trace_client.name == "<stdout>":
-        client_trace = True
+    
+    # Map client trace level to integer value
+    client_trace_level_map = {"none": 0, "access": 1, "request": 2}
+    client_trace_level = client_trace_level_map[args.client_trace]
+    
+    # Handle log trace output destination
+    if args.log_trace:
+        if args.log_trace.name == "<stdout>":
+            config["logging"]["client_trace"] = "<stdout>"
+        else:
+            config["logging"]["client_trace"] = args.log_trace.name
+    elif client_trace_level > 0:
+        # Default to stdout if tracing is enabled but no log file specified
         config["logging"]["client_trace"] = "<stdout>"
-    elif args.trace_client:
-        client_trace = True
-        config["logging"]["file"] = args.trace_client.name
     else:
-        client_trace = False
         logging.debug("no client trace config from cli")
 
     if args.validate_client == "check" or args.validate_client is None:
@@ -1568,7 +1600,7 @@ def run_from_cli(args):
                 {"host": p[2].partition(":")[0], "port": p[2].partition(":")[2]}
             ],
             "client_validation": client_validation,
-            "client_trace": client_trace,
+            "client_trace": client_trace_level,
         }
         number += 1
 
@@ -1696,8 +1728,28 @@ def run_from_config_dict(config: dict):
     )
 
     ct_enabled = False
-    for name, tarpit_config in merged_config["tarpits"].items():
-        ct_enabled = ct_enabled or tarpit_config.get("client_trace")
+    # Map client trace level to integer value
+    client_trace_level_map = {"none": 0, "access": 1, "request": 2}
+    
+    # Handle backward compatibility for boolean and string client_trace values in both configs
+    for config_dict in [config["tarpits"], merged_config["tarpits"]]:
+        for name, tarpit_config in config_dict.items():
+            client_trace_val = tarpit_config.get("client_trace")
+            if isinstance(client_trace_val, bool):
+                # Convert boolean to integer: true -> 1 (access), false -> 0 (none)
+                tarpit_config["client_trace"] = 1 if client_trace_val else 0
+            elif isinstance(client_trace_val, str):
+                # Convert string to integer using the same mapping as CLI
+                client_trace_val_lower = client_trace_val.lower()
+                if client_trace_val_lower in client_trace_level_map:
+                    tarpit_config["client_trace"] = client_trace_level_map[client_trace_val_lower]
+                else:
+                    logging.warning(
+                        "Invalid client_trace value '%s' for tarpit '%s', expected 'none', 'access', or 'request'",
+                        client_trace_val, name
+                    )
+                    tarpit_config["client_trace"] = 0
+            ct_enabled = ct_enabled or bool(tarpit_config.get("client_trace"))
 
     # Setup main logger
     logger = logging.getLogger()
@@ -1824,8 +1876,15 @@ def main_cli():
 
     parser.add_argument(
         "-t",
-        "--trace-client",
-        help="log client access to file",
+        "--client-trace",
+        help="set client trace level",
+        choices=["none", "access", "request"],
+        default="none",
+    )
+
+    parser.add_argument(
+        "--log-trace",
+        help="log client trace to file",
         metavar="FILE",
         nargs="?",
         const="-",
@@ -1834,7 +1893,7 @@ def main_cli():
 
     parser.add_argument(
         "-e",
-        "--validate-client", 
+        "--validate-client",
         help="check the client before sending data",
         const="check",
         nargs="?",

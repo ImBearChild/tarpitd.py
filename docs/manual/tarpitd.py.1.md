@@ -30,9 +30,17 @@ Set data transfer rate limit. Tarpits pattern has their own default value.
 A positive value limits the transfer speed to RATE *bytes* per second. 
 A negative value causes the program to send one byte every |RATE| seconds (effectively 1/|RATE| *bytes* per second).
 
-#### `-t, --trace-client [FILE]`
+#### `-t, --client-trace {none,access,request}`
 
-Log client access to FILE. Disabled by default.
+Set client trace level. Default is `none`.
+
+* `none`: No client tracing
+* `access`: Log client connections and disconnections
+* `request`: Log client connections, disconnections, and request data
+
+#### `--log-trace [FILE]`
+
+Specify output file for client trace logs. Optional.
 
 The output is in jsonl format. Logs to stdout if FILE is left blank.
 

@@ -40,9 +40,17 @@ The maximum number of clients the server will handle. This is calculated per bin
 
 Validate the client before sending a response. 
 
-#### `client_trace=` (bool)
+#### `client_trace=` (int or str)
 
-Enable logging of client access. Client validation result is logged with access log.
+Set client trace level.
+
+Accepts integer values (0, 1, 2) or string values:
+
+* `0` or `"none"`: No client tracing
+* `1` or `"access"`: Log client connections and disconnections
+* `2` or `"request"`: Log client connections, disconnections, and request data
+
+Client validation result is logged with access log.
 
 ## `[logging]` Table
 
@@ -70,7 +78,7 @@ Default is `<stdout>`.
   [tarpits]
   [tarpits.my_cool_ssh_tarpit]
   pattern = "ssh_trans_hold"
-  client_trace = true
+  client_trace = 1
   client_validation = true
   max_clients = 8152
   rate_limit = -2
