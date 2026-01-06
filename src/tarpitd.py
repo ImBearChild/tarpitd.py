@@ -1592,12 +1592,17 @@ def run_from_cli(args):
         raise NotImplementedError
 
     for i in args.serve:
-        p = i.casefold().partition(":")
+        pattern = i.casefold().partition(":")[0]
+        bind = i.casefold().partition(":")[2]
+        host = bind.rpartition(":")[0]
+        port = bind.rpartition(":")[2]
+        if host.startswith('['):
+            host = host[1:-1]
         config["tarpits"][f"cli_{number}"] = {
-            "pattern": p[0],
+            "pattern": pattern,
             "rate_limit": args.rate_limit,
             "bind": [
-                {"host": p[2].partition(":")[0], "port": p[2].partition(":")[2]}
+                {"host": host, "port": port}
             ],
             "client_validation": client_validation,
             "client_trace": client_trace_level,
@@ -1899,8 +1904,7 @@ def main_cli():
         nargs="?",
         choices=["check", "none"],
     )
-
-    # TODO: IPv6 support of cli ( conf is supported )
+    
     parser.add_argument(
         "-s",
         "--serve",
