@@ -62,7 +62,7 @@ A positive value limits the transfer speed to RATE *bytes* per second. A
 negative value causes the program to send one byte every |RATE| seconds
 (effectively 1/|RATE| *bytes* per second).
 
-#### `-t, --client-trace {none,access,request}`
+#### `-t, --trace {none,access,request}`
 
 Set client trace level. Default is `none`.
 
@@ -310,7 +310,7 @@ bind port.
 
 Validate the client before sending a response.
 
-#### `client_trace=` (int or str)
+#### `trace=` (int or str)
 
 Set client trace level.
 
@@ -337,9 +337,9 @@ Log level.
 
 Accept: `debug`, `info`, `warning`, `error`, `critical`. Default is `warning`.
 
-#### `client_trace=` (str)
+#### `trace=` (str)
 
-Path to the client_trace log file. Special value `<stdout>` and `<stderr>` is
+Path to the trace log file. Special value `<stdout>` and `<stderr>` is
 supported.
 
 Default is `<stdout>`.
@@ -349,7 +349,7 @@ Default is `<stdout>`.
   [tarpits]
   [tarpits.my_cool_ssh_tarpit]
   pattern = "ssh_trans_hold"
-  client_trace = 1
+  trace = 1
   client_validation = true
   max_clients = 8152
   rate_limit = -2
@@ -370,7 +370,7 @@ Default is `<stdout>`.
   ]
 
   [logging]
-  client_trace = "./client_trace.log"
+  trace = "./client_trace.log"
 
 ## AUTHOR
 
@@ -591,7 +591,7 @@ class BaseTarpit:
         # https://docs.python.org/3/library/socket.html#socket.socket.listen
         # default backlog is 100
         rate_limit: int = 1
-        client_trace: int = 0  # 0 = none, 1=access, 2=request
+        trace: int = 0  # 0 = none, 1=access, 2=request
         client_validation: bool = True
 
         def update_from_dict(self, config_data: dict):
@@ -647,7 +647,7 @@ class BaseTarpit:
         async with self.sem:
             try:
                 tarpit_writer = TarpitWriter(128, writer=writer)
-                if self._config.client_trace >= 2:
+                if self._config.trace >= 2:
                     reader_background_log = 1024
                 else:
                     reader_background_log = 0
@@ -733,7 +733,7 @@ class BaseTarpit:
             pass
 
         # setup client_trace
-        if self._config.client_trace:
+        if self._config.trace:
             self.client_trace_logger = logging.getLogger(
                 __name__ + ".client_trace"
             )
@@ -1607,17 +1607,17 @@ def run_from_cli(args):
 
     # Map client trace level to integer value
     client_trace_level_map = {"none": 0, "access": 1, "request": 2}
-    client_trace_level = client_trace_level_map[args.client_trace]
+    client_trace_level = client_trace_level_map[args.trace]
 
     # Handle log trace output destination
     if args.log_trace:
         if args.log_trace.name == "<stdout>":
-            config["logging"]["client_trace"] = "<stdout>"
+            config["logging"]["trace"] = "<stdout>"
         else:
-            config["logging"]["client_trace"] = args.log_trace.name
+            config["logging"]["trace"] = args.log_trace.name
     elif client_trace_level > 0:
         # Default to stdout if tracing is enabled but no log file specified
-        config["logging"]["client_trace"] = "<stdout>"
+        config["logging"]["trace"] = "<stdout>"
     else:
         logging.debug("no client trace config from cli")
 
@@ -1641,7 +1641,7 @@ def run_from_cli(args):
             "rate_limit": args.rate_limit,
             "bind": [{"host": host, "port": port}],
             "client_validation": client_validation,
-            "client_trace": client_trace_level,
+            "trace": client_trace_level,
         }
         number += 1
 
@@ -1759,7 +1759,7 @@ def run_from_config_dict(config: dict):
             "main": "<stderr>",
             "level": "info",
             "fmt": "[%(levelname)-8s] %(message)s",
-            "client_trace": "<stdout>",
+            "trace": "<stdout>",
         },
     }
     server = []
@@ -1772,28 +1772,28 @@ def run_from_config_dict(config: dict):
     # Map client trace level to integer value
     client_trace_level_map = {"none": 0, "access": 1, "request": 2}
 
-    # Handle backward compatibility for boolean and string client_trace values in both configs
+    # Handle backward compatibility for boolean and string trace values in both configs
     for config_dict in [config["tarpits"], merged_config["tarpits"]]:
         for name, tarpit_config in config_dict.items():
-            client_trace_val = tarpit_config.get("client_trace")
-            if isinstance(client_trace_val, bool):
+            trace_val = tarpit_config.get("trace")
+            if isinstance(trace_val, bool):
                 # Convert boolean to integer: true -> 1 (access), false -> 0 (none)
-                tarpit_config["client_trace"] = 1 if client_trace_val else 0
-            elif isinstance(client_trace_val, str):
+                tarpit_config["trace"] = 1 if trace_val else 0
+            elif isinstance(trace_val, str):
                 # Convert string to integer using the same mapping as CLI
-                client_trace_val_lower = client_trace_val.lower()
-                if client_trace_val_lower in client_trace_level_map:
-                    tarpit_config["client_trace"] = client_trace_level_map[
-                        client_trace_val_lower
+                trace_val_lower = trace_val.lower()
+                if trace_val_lower in client_trace_level_map:
+                    tarpit_config["trace"] = client_trace_level_map[
+                        trace_val_lower
                     ]
                 else:
                     logging.warning(
-                        "Invalid client_trace value '%s' for tarpit '%s', expected 'none', 'access', or 'request'",
-                        client_trace_val,
+                        "Invalid trace value '%s' for tarpit '%s', expected 'none', 'access', or 'request'",
+                        trace_val,
                         name,
                     )
-                    tarpit_config["client_trace"] = 0
-            ct_enabled = ct_enabled or bool(tarpit_config.get("client_trace"))
+                    tarpit_config["trace"] = 0
+            ct_enabled = ct_enabled or bool(tarpit_config.get("trace"))
 
     # Setup main logger
     logger = logging.getLogger()
@@ -1817,16 +1817,16 @@ def run_from_config_dict(config: dict):
     if ct_enabled:
         ct_logger = logging.getLogger(__name__ + ".client_trace")
         ct_logger.propagate = False
-        handler = get_log_handler(merged_config["logging"]["client_trace"])
+        handler = get_log_handler(merged_config["logging"]["trace"])
         formatter = logging.Formatter("%(message)s")
         handler.setFormatter(formatter)
         ct_logger.addHandler(handler)
         logging.info(
             "saving client trace to `%s`",
-            merged_config["logging"]["client_trace"],
+            merged_config["logging"]["trace"],
         )
     else:
-        logging.info("no tarpit configured with client_trace, will not log it")
+        logging.info("no tarpit configured with trace, will not log it")
 
     tarpit_classes: list[BaseTarpit] = get_all_subclasses(BaseTarpit)
     available_tarpits: dict[str, typing.Any] = {}
@@ -1942,7 +1942,7 @@ def main_cli():
 
     serve_parser.add_argument(
         "-t",
-        "--client-trace",
+        "--trace",
         help="set client trace level",
         choices=["none", "access", "request"],
         default="none",

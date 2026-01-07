@@ -46,7 +46,7 @@ Set data transfer rate limit. Tarpits pattern has their own default value.
 A positive value limits the transfer speed to RATE *bytes* per second.
 A negative value causes the program to send one byte every |RATE| seconds (effectively 1/|RATE| *bytes* per second).
 
-#### `-t, --client-trace {none,access,request}`
+#### `-t, --trace {none,access,request}`
 
 Set client trace level. Default is `none`.
 

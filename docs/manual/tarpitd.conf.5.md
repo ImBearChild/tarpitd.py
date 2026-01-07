@@ -40,7 +40,7 @@ The maximum number of clients the server will handle. This is calculated per bin
 
 Validate the client before sending a response. 
 
-#### `client_trace=` (int or str)
+#### `trace=` (int or str)
 
 Set client trace level.
 
@@ -66,9 +66,9 @@ Log level.
 
 Accept: `debug`, `info`, `warning`, `error`, `critical`. Default is `warning`.
 
-#### `client_trace=` (str)
+#### `trace=` (str)
 
-Path to the client_trace log file. Special value `<stdout>` and `<stderr>` is supported.
+Path to the trace log file. Special value `<stdout>` and `<stderr>` is supported.
 
 Default is `<stdout>`.
 
@@ -78,7 +78,7 @@ Default is `<stdout>`.
   [tarpits]
   [tarpits.my_cool_ssh_tarpit]
   pattern = "ssh_trans_hold"
-  client_trace = 1
+  trace = 1
   client_validation = true
   max_clients = 8152
   rate_limit = -2
@@ -99,7 +99,7 @@ Default is `<stdout>`.
   ]
 
   [logging]
-  client_trace = "./client_trace.log"
+  trace = "./client_trace.log"
 
 ## AUTHOR
 

@@ -72,7 +72,7 @@ Instead of relying solely on command-line options, you can configure tarpitd.py 
 [tarpits]
 [tarpits.my_cool_ssh_tarpit]
 pattern = "ssh_trans_hold"
-client_trace = 1
+trace = 1
 client_validation = true
 max_clients = 8152
 rate_limit = -2
@@ -93,7 +93,7 @@ bind = [
 ]
 
 [logging]
-client_trace = "./client_trace.log"
+trace = "./client_trace.log"
 ```
 
 In this configuration:
