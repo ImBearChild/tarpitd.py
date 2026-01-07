@@ -14,8 +14,12 @@ tarpitd.py - making a port into tarpit
 
 ## SYNOPSIS
 
-    tarpitd.py [-h] [-r RATE] [-c [FILE]]
-        [-s PATTERN:HOST:PORT [PATTERN:HOST:PORT ...]] [--manual]
+    tarpitd.py <subcommand> [options]
+
+Available subcommands:
+
+* `serve` - Start one or more tarpit services
+* `manual` - Display built-in manual pages
 
 ## DESCRIPTION
 
@@ -24,18 +28,31 @@ troubles clients that connect to it. This tool can be used to tie up network
 connections by delivering slow or malformed responses, potentially keeping
 client connections open for extended periods.
 
-## OPTIONS
+## SUBCOMMANDS
+
+### `serve`
+
+Start one or more tarpit services.
+
+#### Synopsis
+
+    tarpitd.py serve [-h] [-v] [-r RATE] [-c FILE]
+        [-t {none,access,request}] [--log-trace FILE]
+        [-e [{check, none}]] -p PATTERN:HOST:PORT [PATTERN:HOST:PORT ...]
+
+#### Options
 
 #### `-c, --config FILE`
 
-Load configuration from file.
+Load configuration from file. Cannot be used together with `-p/--pattern`.
 
-#### `-s, --serve PATTERN:HOST:PORT [PATTERN:HOST:PORT ...]`
+#### `-p, --pattern PATTERN:HOST:PORT [PATTERN:HOST:PORT ...]`
 
-Start a tarpit pattern on the specified host and port.
+Start a tarpit pattern on the specified host and port (required unless using
+`-c/--config`).
 
 The name of PATTERN is case-insensitive. For a complete list of supported
-patterns, see the “TARPIT PATTERN” section below.
+patterns, see the "TARPIT PATTERN" section below.
 
 #### `-r RATE, --rate-limit RATE`
 
@@ -67,10 +84,19 @@ none` to disable it.
 The current implementation checks the first few bytes of the request to
 confirm that the client is using the corresponding protocol.
 
-#### `--manual MANUAL`
+### `manual`
 
-Display the built-in manual page. By default, tarpitd.py will open
-`tarpitd.py.1`.
+Display built-in manual pages.
+
+#### Synopsis
+
+    tarpitd.py manual [page]
+
+#### Options
+
+#### `page`
+
+Name of the manual page to display. Default is `tarpitd.py.1`.
 
 Available manual pages include:
 
@@ -188,27 +214,39 @@ simultaneously.
 
 ## EXAMPLES
 
-Print this manual:
+### Using the `manual` subcommand
 
-    tarpitd.py --manual
+Display the main manual:
+
+    tarpitd.py manual
+
+Display the configuration file manual:
+
+    tarpitd.py manual tarpitd.conf.5
+
+### Using the `serve` subcommand
 
 Start an endlessh tarpit:
 
-    tarpitd.py -s endlessh:0.0.0.0:2222
+    tarpitd.py serve -p endlessh:0.0.0.0:2222
 
 Start an endless HTTP tarpit with a 2-second per-byte delay:
 
-    tarpitd.py -r-2 -s http_endless_header:0.0.0.0:8088
+    tarpitd.py serve -r -2 -p http_endless_header:0.0.0.0:8088
 
 Start an endless HTTP tarpit with a rate limit of 1 KB/s:
 
-    tarpitd.py -r1024 -s HTTP_DEFLATE_HTML_BOMB:0.0.0.0:8088
+    tarpitd.py serve -r 1024 -p HTTP_DEFLATE_HTML_BOMB:0.0.0.0:8088
 
 Start two different HTTP tarpit services concurrently (the name of the pattern
 is case-insensitive):
 
-    tarpitd.py -s http_deflate_html_bomb:127.0.0.1:8080 \
-                  http_endless_header:0.0.0.0:8088
+    tarpitd.py serve -p http_deflate_html_bomb:127.0.0.1:8080 \
+                     http_endless_header:0.0.0.0:8088
+
+Start tarpit from configuration file:
+
+    tarpitd.py serve -c /path/to/config.toml
 
 ## AUTHOR
 

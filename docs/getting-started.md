@@ -27,7 +27,7 @@ SSH ports are frequent targets for brute-force attacks. By converting the SSH po
 *Example: Run an SSH tarpit (in endlessh mode) on port 2222 of your machine:*
 
 ```bash
-tarpitd.py -s endlessh:0.0.0.0:2222
+tarpitd.py serve -p endlessh:0.0.0.0:2222
 ```
 
 This setup is effective for defending against SSH brute-force attacks by forcing attackers to spend much longer time on each connection, decreasing the resource they can spend on real SSH daemon.
@@ -45,7 +45,7 @@ tarpitd.py allows you to launch multiple services in a single command, each usin
 *Example 1: Run both an HTTP tarpit and an TLS tarpit concurrently with client tracing:*
 
 ```bash
-tarpitd.py -t access --log-trace client.log -r -2 -s http_endless_header:0.0.0.0:8088 -s tls_slow_hello:127.0.0.1:8443
+tarpitd.py serve -t access --log-trace client.log -r -2 -p http_endless_header:0.0.0.0:8088 -p tls_slow_hello:127.0.0.1:8443
 ```
 
 In this case, the option `-r -2` makes the program wait 2 seconds for every byte sent, forcing each malicious request to endure a long delay.
@@ -55,7 +55,7 @@ Want to fight back harder? How about sending resource-intensive deflate-compress
 *Example 2: Consume client resources using a deflate-compressed HTML bomb with request-level tracing:*
 
 ```bash
-tarpitd.py -t request -r 1024 -s HTTP_DEFLATE_HTML_BOMB:0.0.0.0:8088
+tarpitd.py serve -t request -r 1024 -p HTTP_DEFLATE_HTML_BOMB:0.0.0.0:8088
 ```
 
 Here, the tool sends a 1 MB compressed package that, when decompressed, may consume up to 1 GB of memory, with invalid HTML can confuse the client. With a rate limit of 1 KB/s, you can control the output flow while imposing heavy resource usage on the client.
@@ -102,8 +102,8 @@ In this configuration:
 * You can customize the bind addresses (host and port), rate limits, client examination, and maximum connection limits individually.
 * The global [logging] section allows you to log connection details for future analysis.
 
-Save it to `conf.toml`. And run tarpitd.py with it. 
+Save it to `conf.toml`. And run tarpitd.py with it.
 
 ```
-tarpitd.py -c ./conf.toml
+tarpitd.py serve -c ./conf.toml
 ```
