@@ -1566,11 +1566,11 @@ def run_server(server):
 def run_from_cli(args):
     config: dict = {"tarpits": {}, "logging": {}}
     number = 0
-    
+
     # Map client trace level to integer value
     client_trace_level_map = {"none": 0, "access": 1, "request": 2}
     client_trace_level = client_trace_level_map[args.client_trace]
-    
+
     # Handle log trace output destination
     if args.log_trace:
         if args.log_trace.name == "<stdout>":
@@ -1591,19 +1591,17 @@ def run_from_cli(args):
     if client_validation == "probe":
         raise NotImplementedError
 
-    for i in args.serve:
+    for i in args.pattern:
         pattern = i.casefold().partition(":")[0]
         bind = i.casefold().partition(":")[2]
         host = bind.rpartition(":")[0]
         port = bind.rpartition(":")[2]
-        if host.startswith('['):
+        if host.startswith("["):
             host = host[1:-1]
         config["tarpits"][f"cli_{number}"] = {
             "pattern": pattern,
             "rate_limit": args.rate_limit,
-            "bind": [
-                {"host": host, "port": port}
-            ],
+            "bind": [{"host": host, "port": port}],
             "client_validation": client_validation,
             "client_trace": client_trace_level,
         }
@@ -1735,7 +1733,7 @@ def run_from_config_dict(config: dict):
     ct_enabled = False
     # Map client trace level to integer value
     client_trace_level_map = {"none": 0, "access": 1, "request": 2}
-    
+
     # Handle backward compatibility for boolean and string client_trace values in both configs
     for config_dict in [config["tarpits"], merged_config["tarpits"]]:
         for name, tarpit_config in config_dict.items():
@@ -1747,11 +1745,14 @@ def run_from_config_dict(config: dict):
                 # Convert string to integer using the same mapping as CLI
                 client_trace_val_lower = client_trace_val.lower()
                 if client_trace_val_lower in client_trace_level_map:
-                    tarpit_config["client_trace"] = client_trace_level_map[client_trace_val_lower]
+                    tarpit_config["client_trace"] = client_trace_level_map[
+                        client_trace_val_lower
+                    ]
                 else:
                     logging.warning(
                         "Invalid client_trace value '%s' for tarpit '%s', expected 'none', 'access', or 'request'",
-                        client_trace_val, name
+                        client_trace_val,
+                        name,
                     )
                     tarpit_config["client_trace"] = 0
             ct_enabled = ct_enabled or bool(tarpit_config.get("client_trace"))
@@ -1836,6 +1837,8 @@ def display_manual_unix(name):
             subprocess.run("less", input=_MANUAL_TARPITD_PY_1.encode())
         case "tarpitd.conf.5":
             subprocess.run("less", input=_MANUAL_TARPITD_CONF_5.encode())
+        case _:
+            print("Manual page not found:", name)
 
 
 def main_cli():
@@ -1845,24 +1848,44 @@ def main_cli():
 
     import argparse
 
-    parser = argparse.ArgumentParser(
-        prog="tarpitd.py",
-        formatter_class=argparse.RawTextHelpFormatter,
-        description="making a port into tarpit",
-        epilog=(
-            "This Source Code Form is subject to the terms of the Mozilla Public \n"
-            "License, v. 2.0. If a copy of the MPL was not distributed with this \n"
-            "file, You can obtain one at https://mozilla.org/MPL/2.0/"
-            "\n\n"
-            "> This program was made on the lands of \n"
-            "  the Aminoac people of the Amacinoas Nation. \n"
-            "  We pay our respects to their Elders, past and present. \n"
-            "  Sovereignty was never ceded. "
-            "\n\n"
-        ),
+    epilog = (
+        "This Source Code Form is subject to the terms of the Mozilla Public \n"
+        "License, v. 2.0. If a copy of the MPL was not distributed with this \n"
+        "file, You can obtain one at https://mozilla.org/MPL/2.0/"
+        "\n\n"
+        "> This program was made on the lands of \n"
+        "  the Aminoac people of the Amacinoas Nation. \n"
+        "  We pay our respects to their Elders, past and present. \n"
+        "  Sovereignty was never ceded. "
+        "\n\n"
     )
 
-    parser.add_argument(
+    top_parser = argparse.ArgumentParser(
+        prog="tarpitd.py",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=epilog,
+        description="making a port into tarpit",
+    )
+
+    subparsers = top_parser.add_subparsers(
+        help="subcommand", dest="subparser_name"
+    )
+
+    serve_parser = subparsers.add_parser(
+        "serve",
+        help="serve one or more tarpits",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=epilog,
+    )
+
+    serve_parser.add_argument(
+        "-v",
+        "--verbose",
+        help="become more detailed at output",
+        action="count",
+    )
+
+    serve_parser.add_argument(
         "-r",
         "--rate-limit",
         help="set data transfer rate limit",
@@ -1871,7 +1894,7 @@ def main_cli():
         default=None,
     )
 
-    parser.add_argument(
+    serve_parser.add_argument(
         "-c",
         "--config",
         help="specify config file",
@@ -1879,7 +1902,7 @@ def main_cli():
         type=argparse.FileType("rb"),
     )
 
-    parser.add_argument(
+    serve_parser.add_argument(
         "-t",
         "--client-trace",
         help="set client trace level",
@@ -1887,7 +1910,7 @@ def main_cli():
         default="none",
     )
 
-    parser.add_argument(
+    serve_parser.add_argument(
         "--log-trace",
         help="log client trace to file",
         metavar="FILE",
@@ -1896,7 +1919,7 @@ def main_cli():
         type=argparse.FileType("wb"),
     )
 
-    parser.add_argument(
+    serve_parser.add_argument(
         "-e",
         "--validate-client",
         help="check the client before sending data",
@@ -1904,47 +1927,75 @@ def main_cli():
         nargs="?",
         choices=["check", "none"],
     )
-    
-    parser.add_argument(
-        "-s",
-        "--serve",
+
+    serve_parser.add_argument(
+        "-p",
+        "--pattern",
         help="serve specified tarpit pattern",
         metavar="PATTERN:HOST:PORT",
         action="extend",
         nargs="+",
     )
 
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        help="become more detailed at output",
-        action="count",
+    def serve(args):
+        if args.pattern and args.config:
+            print("--pattern conflicts with --config")
+            serve_parser.parse_args(["--help"])
+        elif args.pattern:
+            run_from_cli(args)
+        elif args.config:
+            import tomllib
+
+            run_from_config_dict(tomllib.load(args.config))
+        else:
+            print("No pattern or config given!")
+            serve_parser.parse_args(["--help"])
+        pass
+
+    serve_parser.set_defaults(func=serve)
+
+    manual_parser = subparsers.add_parser(
+        "manual",
+        help="display built-in manual page",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=epilog,
     )
 
-    parser.add_argument(
-        "--manual",
+    manual_parser.add_argument(
+        "page",
         help="show full manual of this program",
         nargs="?",
-        const="tarpitd.py.1",
+        default="tarpitd.py.1",
         action="store",
     )
 
-    args = parser.parse_args()
-
-    if args.manual:
-        display_manual_unix(args.manual)
+    def manual(args):
+        display_manual_unix(args.page)
         pass
-    elif args.config:
-        import tomllib
 
-        if args.serve:
-            print("--serve conflicts with --config")
-            exit()
-        run_from_config_dict(tomllib.load(args.config))
-    elif args.serve:
-        run_from_cli(args)
+    manual_parser.set_defaults(func=manual)
+
+    args = top_parser.parse_args()
+
+    if not args.__contains__("func"):
+        top_parser.parse_args(["--help"])
     else:
-        parser.parse_args(["--help"])
+        args.func(args)
+
+    # if args.manual:
+    #     display_manual_unix(args.manual)
+    #     pass
+    # elif args.config:
+    #     import tomllib
+
+    #     if args.serve:
+    #         print("--serve conflicts with --config")
+    #         exit()
+    #     run_from_config_dict(tomllib.load(args.config))
+    # elif args.serve:
+    #     run_from_cli(args)
+    # else:
+    #     parser.parse_args(["--help"])
 
 
 if __name__ == "__main__":
