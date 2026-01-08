@@ -73,6 +73,6 @@ For better experience, you can use [hatch](https://hatch.pypa.io/):
 
 ```bash
 hatch run tarpitd.py # Run in development environment
-hatch test # Run pytest instead of plain unittest
+hatch test -rp # Run pytest instead of plain unittest
 hatch run docs:serve # Serve mkdocs
 ```
