@@ -401,6 +401,7 @@ import dataclasses
 import time
 import typing
 import copy
+import os
 
 # module for cli use only will be import when needed
 
@@ -1577,6 +1578,27 @@ class SmtpEndlessEhloTarpit(SmtpTarpit):
             )
 
 
+def clean_priv() -> None:
+    # Clean env
+    os.environ.clear()
+    if os.name == "posix":
+        if os.getuid() == 0:
+            logging.info("privileged uid detected, dropping privilege")
+            # Using a blank uid is not safe,
+            # Chroot to /tmp is not safe
+            # but still better than running as root
+            try:
+                os.chroot("/tmp")
+                os.chdir('/')
+                id_num = 65533
+                os.setgroups([id_num])
+                os.setresgid(id_num, id_num, id_num)
+                os.setresuid(id_num, id_num, id_num)
+            except Exception as e:
+                logging.warning(f"failed to drop privilege, error: `{e}`")
+    pass
+
+
 async def async_run_server(server):
     try:
         async with asyncio.TaskGroup() as tg:
@@ -1588,6 +1610,7 @@ async def async_run_server(server):
                     tg.create_task(s.serve_forever())
                 except OSError as e:
                     logging.error("failed to run server. err: `%s`", e)
+            clean_priv()
     except asyncio.CancelledError:
         logging.warning(
             "`async_run_server` task cancelled. shutting down tarpitd."
