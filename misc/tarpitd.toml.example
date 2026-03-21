@@ -22,4 +22,4 @@ bind = [
 ]
 
 [logging]
-trace = "./client_trace.log"
+path = "./tarpitd.log"

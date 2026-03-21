@@ -405,6 +405,8 @@ import os
 
 # module for cli use only will be import when needed
 
+## Helper Classes
+
 
 class BytesLiteralEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -413,6 +415,124 @@ class BytesLiteralEncoder(json.JSONEncoder):
         elif isinstance(obj, bytearray):
             return repr(obj)[10:-1]
         return json.JSONEncoder.default(self, obj)
+
+
+class RingBuffer:
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.buffer = [None] * capacity
+        self.head = 0
+        self.size = 0
+
+    def append(self, item):
+        self.buffer[self.head] = item
+        self.head = (self.head + 1) % self.capacity
+        if self.size < self.capacity:
+            self.size += 1
+
+    def get(self, index):
+        if index < 0 or index >= self.size:
+            raise IndexError("index out of range")
+        return self.buffer[index]
+
+    def __iter__(self):
+        for i in range(self.size):
+            yield self.buffer[i]
+
+    def __len__(self):
+        return self.size
+
+
+## Event dataclasses
+
+
+@dataclasses.dataclass
+class Event:
+    time: float
+    ev_type: str
+
+
+class ConnEventEnum(enum.StrEnum):
+    OPEN = "conn_open"
+    ERROR = "conn_error"
+    CLOSE = "conn_close"
+    VALIDATE = "conn_validate"
+    pass
+
+
+@dataclasses.dataclass
+class ConnEvent(Event):
+    tarpit_name: str
+    tarpit_pattern: str
+    peername: tuple[str, int]
+    sockname: tuple[str, int]
+    meta: None | dict = None
+
+
+class WorkerEventEnum(enum.StrEnum):
+    INIT = "worker_init"
+    READY = "worker_ready"
+    TARPIT_INIT = "worker_tarpit_init"
+    TARPIT_READY = "worker_tarpit_ready"
+    pass
+
+
+@dataclasses.dataclass
+class WorkerEvent(Event):
+    tarpit_name: None | str = None
+    tarpit_pattern: None | str = None
+    meta: None | dict = None
+
+
+def _decode_event_from_dict(d: dict):
+    ev_type = d["ev_type"]
+    if any(ev_type == e for e in ConnEventEnum):
+        return ConnEvent(**d)
+    elif any(ev_type == e for e in WorkerEventEnum):
+        return WorkerEvent(**d)
+    else:
+        raise Exception("Unknown event type")
+
+
+class TarpitTracer:
+    def trace_conn_event(
+        self,
+        event: ConnEventEnum,
+        tarpit_name: str,
+        pattern: str,
+        peername,
+        sockname,
+        metadata,
+    ):
+        assert any(event == e for e in ConnEventEnum)
+
+        data = ConnEvent(
+            time=time.time(),
+            ev_type=event,
+            tarpit_name=tarpit_name,
+            tarpit_pattern=pattern,
+            peername=peername,
+            sockname=sockname,
+        )
+
+        sys.stdout.write(
+            json.dumps(dataclasses.asdict(data), cls=BytesLiteralEncoder)
+            + "\r\n"
+        )
+        sys.stdout.flush()
+        # raise NotImplementedError
+
+    def trace_client_event(self, data):
+        raise NotImplementedError
+        sys.stdout.write(json.dumps(data, cls=BytesLiteralEncoder))
+
+    def trace_worker_event(self, data):
+        raise NotImplementedError
+
+    pass
+
+
+_tracer = TarpitTracer()
 
 
 class TarpitWriter:
@@ -581,24 +701,28 @@ class BaseTarpit:
     """
 
     PATTERN_NAME: str = "_base_tarpit"
+    PATTERN_NAME_ALIAS: list[str] = []
 
     @dataclasses.dataclass
     class RuntimeConfig:
         name: str = "fixme:no_name"
-        # name_pattern : str = "fixme:no_pattern_name"
-        # TODO: make pattern name in class
         max_clients: int = 4096
         # Not real connection count. More than 4096 will be created, but will wait in queue
         # https://docs.python.org/3/library/socket.html#socket.socket.listen
         # default backlog is 100
-        rate_limit: int = 1
-        trace: int = 0  # 0 = none, 1=access, 2=request
-        client_validation: bool = True
+        rate_limit: int = 8
+        trace_level: int = 0  # 0 = none, 1=access, 2=request
+        validation_level: int = 0  # 0 = none, 1=check, 2=probe
 
         def update_from_dict(self, config_data: dict):
             for key, value in config_data.items():
-                if hasattr(self, key) and value is not None:
-                    setattr(self, key, value)
+                if value is not None:
+                    if hasattr(self, key):
+                        setattr(self, key, value)
+                    else:
+                        logging.warning(
+                            "not handled config k:`%s`, v:`%s`", key, value
+                        )
 
     def _setup(self):
         """
@@ -614,26 +738,17 @@ class BaseTarpit:
 
         return
 
-    def __log_client(
-        self, writer: asyncio.StreamWriter, event: str, meta=None
+    def __trace_client(
+        self, writer: asyncio.StreamWriter, event: ConnEventEnum, meta=None
     ) -> None:
-        self.client_trace_logger.warning(
-            json.dumps(
-                {
-                    "time": time.time(),
-                    "event": event,
-                    "name": self._config.name,
-                    "pattern": self.PATTERN_NAME,
-                    "conn_info": {
-                        "peername": writer.get_extra_info("peername"),
-                        "sockname": writer.get_extra_info("sockname"),
-                    },
-                    "meta": meta,
-                },
-                cls=BytesLiteralEncoder,
-            )
+        _tracer.trace_conn_event(
+            event=event,
+            tarpit_name=self._config.name,
+            pattern=self.PATTERN_NAME,
+            peername=writer.get_extra_info("peername"),
+            sockname=writer.get_extra_info("sockname"),
+            metadata=meta,
         )
-        pass
 
     async def _handler(
         self,
@@ -648,32 +763,32 @@ class BaseTarpit:
         async with self.sem:
             try:
                 tarpit_writer = TarpitWriter(128, writer=writer)
-                if self._config.trace >= 2:
+                if self._config.trace_level >= 2:
                     reader_background_log = 1024
                 else:
                     reader_background_log = 0
                 tarpit_reader = TarpitReader(
                     reader_background_log, reader=reader
                 )
-                self._runtime_log_client(writer, "open")
+                self.__trace_client(writer, ConnEventEnum.OPEN)
                 await self._handler(tarpit_reader, tarpit_writer)
             except (
                 BrokenPipeError,
                 ConnectionAbortedError,
                 ConnectionResetError,
             ) as e:
-                self._runtime_log_client(
+                self.__trace_client(
                     writer,
-                    "conn_error",
+                    ConnEventEnum.ERROR,
                     meta={"err": e.__class__.__name__, "msg": str(e)},
                 )
             except asyncio.exceptions.CancelledError:
                 self.logger.debug("task cancelled")
-            except WindowsError as e:  # type: ignore
-                if e.winerror == 121:
-                    self._runtime_log_client(
+            except OSError as e:  # type: ignore
+                if hasattr(e, "winerror") and (e.winerror == 121):
+                    self.__trace_client(
                         writer,
-                        "conn_error",
+                        ConnEventEnum.ERROR,
                         meta={"err": e.__class__.__name__, "msg": str(e)},
                     )
                 else:
@@ -681,8 +796,10 @@ class BaseTarpit:
             except Exception as e:
                 self.logger.exception(e)
             finally:
-                self._runtime_log_client(
-                    writer, "close", meta={"request": tarpit_reader.dump_data()}
+                self.__trace_client(
+                    writer,
+                    ConnEventEnum.CLOSE,
+                    meta={"request": tarpit_reader.dump_data()},
                 )
 
     async def create_server(self, host, port, start_serving=False):
@@ -695,6 +812,7 @@ class BaseTarpit:
         The user should await on Server.start_serving() or
         Server.serve_forever() to make the server to start accepting connections.
         """
+        self.loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
         server = await asyncio.start_server(
             self.__handler_common,
             host=host,
@@ -726,21 +844,6 @@ class BaseTarpit:
 
         # Call setup for subclass setup
         self._setup()
-
-        def _void(*args, **kwargs):
-            pass
-
-        async def _void_async(*args, **kwargs):
-            pass
-
-        # setup client_trace
-        if self._config.trace:
-            self.client_trace_logger = logging.getLogger(
-                __name__ + ".client_trace"
-            )
-            self._runtime_log_client = self.__log_client
-        else:
-            self._runtime_log_client = _void
 
 
 class StaticTarpit(BaseTarpit):
@@ -798,7 +901,7 @@ class StaticTarpit(BaseTarpit):
         )
         if result.expected:
             if result.data:  # result.data == None means skipped
-                self._runtime_log_client(
+                self.__trace_client(
                     tarpit_writer, "validate", meta=result._asdict()
                 )
             tarpit_writer.change_rate_limit(self._config.rate_limit)
@@ -809,7 +912,7 @@ class StaticTarpit(BaseTarpit):
                 self.__drain_remaining_data(tarpit_reader, tarpit_writer),
             )
         else:
-            self._runtime_log_client(
+            self.__trace_client(
                 tarpit_writer, "validate", meta=result._asdict()
             )
             await asyncio.sleep(random.randrange(16, 32))
@@ -822,7 +925,7 @@ class StaticTarpit(BaseTarpit):
         self._validator_config = self.ValidatorConfig()
         self.__runtime_validate_client: StaticTarpit.ValidatorCallable
         # setup client_validation
-        if self._config.client_validation:
+        if self._config.validation_level:
             match self._validator_support:
                 case 1:
                     self.__runtime_validate_client = self._validate_client
@@ -850,7 +953,7 @@ class DynmanicTarpit(BaseTarpit):
     def __init__(self, **config):
         super().__init__(**config)
 
-        if self._config.client_validation:
+        if self._config.validation_level:
             self.logger.warning(
                 "this tarpit does not support client_validation"
             )
@@ -1370,7 +1473,8 @@ class SshTransHoldTarpit(SshTarpit):
 
 
 class SshEndlessTarpit(SshTarpit):
-    PATTERN_NAME: str = "endlessh"
+    PATTERN_NAME: str = "ssh_endless_banner"
+    PATTERN_NAME_ALIAS: list[str] = ["endlessh"]
 
     async def handle_client(self, writer: TarpitWriter):
         while True:
@@ -1578,7 +1682,12 @@ class SmtpEndlessEhloTarpit(SmtpTarpit):
             )
 
 
-def clean_priv() -> None:
+##
+#  Worker and CLI
+##
+
+
+def clean_privilege() -> None:
     # Clean env
     os.environ.clear()
     if os.name == "posix":
@@ -1589,7 +1698,7 @@ def clean_priv() -> None:
             # but still better than running as root
             try:
                 os.chroot("/tmp")
-                os.chdir('/')
+                os.chdir("/")
                 id_num = 65533
                 os.setgroups([id_num])
                 os.setresgid(id_num, id_num, id_num)
@@ -1599,58 +1708,9 @@ def clean_priv() -> None:
     pass
 
 
-async def async_run_server(server):
-    try:
-        async with asyncio.TaskGroup() as tg:
-            for i in server:
-                try:
-                    s = await i
-                    addr = s.sockets[0].getsockname()
-                    logging.debug(f"asyncio serving on {addr}")
-                    tg.create_task(s.serve_forever())
-                except OSError as e:
-                    logging.error("failed to run server. err: `%s`", e)
-            clean_priv()
-    except asyncio.CancelledError:
-        logging.warning(
-            "`async_run_server` task cancelled. shutting down tarpitd."
-        )
-    finally:
-        logging.info("shutdown complete.")
-
-
-def run_server(server):
-    with asyncio.Runner() as runner:
-        runner.run(async_run_server(server))
-
-
-def run_from_cli(args):
+def generate_conf_from_cli(args, old_config: dict = {}):
     config: dict = {"tarpits": {}, "logging": {}}
     number = 0
-
-    # Map client trace level to integer value
-    client_trace_level_map = {"none": 0, "access": 1, "request": 2}
-    client_trace_level = client_trace_level_map[args.trace]
-
-    # Handle log trace output destination
-    if args.log_trace:
-        if args.log_trace.name == "<stdout>":
-            config["logging"]["trace"] = "<stdout>"
-        else:
-            config["logging"]["trace"] = args.log_trace.name
-    elif client_trace_level > 0:
-        # Default to stdout if tracing is enabled but no log file specified
-        config["logging"]["trace"] = "<stdout>"
-    else:
-        logging.debug("no client trace config from cli")
-
-    if args.validate_client == "check" or args.validate_client is None:
-        client_validation = True
-    else:
-        client_validation = False
-
-    if client_validation == "probe":
-        raise NotImplementedError
 
     for i in args.pattern:
         pattern = i.casefold().partition(":")[0]
@@ -1663,8 +1723,8 @@ def run_from_cli(args):
             "pattern": pattern,
             "rate_limit": args.rate_limit,
             "bind": [{"host": host, "port": port}],
-            "client_validation": client_validation,
-            "trace": client_trace_level,
+            "validation": args.validate_client,
+            "trace": args.trace,
         }
         number += 1
 
@@ -1683,7 +1743,7 @@ def run_from_cli(args):
     if args.verbose >= 3:
         logging.error("higher verbose level is not implemented")
 
-    run_from_config_dict(config)
+    return config
 
 
 def get_all_subclasses(cls):
@@ -1694,32 +1754,6 @@ def get_all_subclasses(cls):
         all_subclasses.extend(get_all_subclasses(subclass))
 
     return all_subclasses
-
-
-def get_log_handler(file_name_in_conf):
-    match file_name_in_conf:
-        case "<stdout>":
-            return logging.StreamHandler(sys.stdout)
-        case "<stderr>":
-            return logging.StreamHandler(sys.stderr)
-        case _:
-            return logging.FileHandler(file_name_in_conf)
-
-    pass
-
-
-def get_log_level(level_in_conf):
-    match level_in_conf:
-        case "debug":
-            return logging.DEBUG
-        case "info":
-            return logging.INFO
-        case "warning":
-            return logging.WARNING
-        case "error":
-            return logging.ERROR
-        case "critical":
-            return logging.CRITICAL
 
 
 def dict_deep_update(
@@ -1776,118 +1810,243 @@ def dict_deep_update(
     return target
 
 
-def run_from_config_dict(config: dict):
-    DEFAULT_CONF: typing.Final[dict] = {
-        "logging": {
-            "main": "<stderr>",
-            "level": "info",
-            "fmt": "[%(levelname)-8s] %(message)s",
-            "trace": "<stdout>",
+def get_log_level(level_in_conf: str):
+    return get_case_insensitive_value(
+        level_in_conf,
+        {
+            "debug": logging.DEBUG,
+            "info": logging.INFO,
+            "warning": logging.WARNING,
+            "error": logging.ERROR,
+            "critical": logging.CRITICAL,
         },
-    }
-    server = []
-
-    merged_config = dict_deep_update(
-        DEFAULT_CONF, config, copy_dest=True, list_strategy="extend"
     )
 
-    ct_enabled = False
-    # Map client trace level to integer value
-    client_trace_level_map = {"none": 0, "access": 1, "request": 2}
 
-    # Handle backward compatibility for boolean and string trace values in both configs
-    for config_dict in [config["tarpits"], merged_config["tarpits"]]:
-        for name, tarpit_config in config_dict.items():
-            trace_val = tarpit_config.get("trace")
-            if isinstance(trace_val, bool):
-                # Convert boolean to integer: true -> 1 (access), false -> 0 (none)
-                tarpit_config["trace"] = 1 if trace_val else 0
-            elif isinstance(trace_val, str):
-                # Convert string to integer using the same mapping as CLI
-                trace_val_lower = trace_val.lower()
-                if trace_val_lower in client_trace_level_map:
-                    tarpit_config["trace"] = client_trace_level_map[
-                        trace_val_lower
-                    ]
-                else:
-                    logging.warning(
-                        "Invalid trace value '%s' for tarpit '%s', expected 'none', 'access', or 'request'",
-                        trace_val,
-                        name,
-                    )
-                    tarpit_config["trace"] = 0
-            ct_enabled = ct_enabled or bool(tarpit_config.get("trace"))
+def get_log_handler(file_name_in_conf):
+    match file_name_in_conf:
+        case "<stdout>":
+            return logging.StreamHandler(sys.stdout)
+        case "<stderr>":
+            return logging.StreamHandler(sys.stderr)
+        case _:
+            return logging.FileHandler(file_name_in_conf)
 
-    # Setup main logger
-    logger = logging.getLogger()
-    logger.setLevel(get_log_level(merged_config["logging"]["level"]))
+    pass
 
-    formatter = logging.Formatter(
-        fmt=merged_config["logging"]["fmt"],
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-    handler = get_log_handler(merged_config["logging"]["main"])
-    handler.setFormatter(formatter)
 
-    # Properly clean existing handlers
-    for h in logger.handlers:
-        logger.removeHandler(h)
-        if hasattr(h, "close"):
-            h.close()
-    logger.addHandler(handler)
+def get_case_insensitive_value(key: str, dictionary: dict):
+    if not all(ord(char) < 128 for char in key):
+        raise ValueError("Key must only contain ASCII characters.")
 
-    # Setup client trace logger
-    if ct_enabled:
-        ct_logger = logging.getLogger(__name__ + ".client_trace")
-        ct_logger.propagate = False
-        handler = get_log_handler(merged_config["logging"]["trace"])
-        formatter = logging.Formatter("%(message)s")
+    lowered_keys = {k.lower(): v for k, v in dictionary.items()}
+    return lowered_keys.get(key.lower(), None)
+
+
+_DEFAULT_CONF: typing.Final[dict] = {
+    "logging": {
+        "file": "<stderr>",
+        "level": "info",
+        "fmt": "[%(levelname)-8s] %(message)s",
+    },
+}
+
+
+class TarpitSupervisor:
+    def __init__(self, config: dict):
+        self.orig_config = dict_deep_update(
+            _DEFAULT_CONF, config, copy_dest=True, list_strategy="extend"
+        )
+
+        logging.debug(self.orig_config)
+        level = get_log_level(self.orig_config["logging"]["level"])
+        fmt = "[Supervisor] " + self.orig_config["logging"]["fmt"]
+
+        TarpitWorker.setup_main_logger(
+            level, fmt, get_log_handler(self.orig_config["logging"]["file"])
+        )
+        self.event_buffer = RingBuffer(128)
+
+    def generate_worker_conf_bytes(self) -> bytes:
+        worker_conf: dict = {}
+        worker_conf["tarpits"] = self.orig_config["tarpits"]
+        worker_conf["logging"] = {}
+        worker_conf["logging"]["level"] = self.orig_config["logging"]["level"]
+        worker_conf["logging"]["fmt"] = (
+            "[Worker    ] " + self.orig_config["logging"]["fmt"]
+        )
+        worker_conf["logging"]["file"] = "<stderr>"
+        worker_conf[
+            "worker"
+        ] = {}  ## TODO: use worker section to fine grain worker behavior
+        worker_conf["tracing"] = {}
+        worker_conf["tracing"]["enabled"] = True
+        worker_conf["tracing"]["file"] = "<stdout>"
+        logging.debug("conf for worker: %s", worker_conf)
+        conf_bytes = bytes(json.dumps(worker_conf), encoding="utf8") + b"\n"
+        # print(conf_bytes)
+        return conf_bytes
+
+    async def handle_worker_stdout(self, event):
+        self.event_buffer.append(event)
+        pass
+
+    async def run_worker(self):
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            __file__,
+            "serve",
+            "--config",
+            "-",
+            "--config-format",
+            "jsonl",
+            "--standalone",
+            stdout=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.PIPE,
+            stderr=None,
+        )
+
+        process.stdin.write(self.generate_worker_conf_bytes())
+        await process.stdin.drain()
+        process.stdin.close()
+        # print("close")
+        # await process.communicate()
+
+        while True:
+            line = await process.stdout.readline()
+            if not line:
+                break
+            line = str(line, encoding="utf8")
+            event_dict = json.loads(line)
+            ev = _decode_event_from_dict(event_dict)
+            await self.handle_worker_stdout(event=ev)
+
+    def run(self):
+        asyncio.run(self.run_worker())
+
+
+class TarpitWorker:
+    def __init__(self, config: dict):
+        self.server: list = []
+        self.merged_config = dict_deep_update(
+            _DEFAULT_CONF, config, copy_dest=True, list_strategy="extend"
+        )
+
+        level = get_log_level(self.merged_config["logging"]["level"])
+        fmt = self.merged_config["logging"]["fmt"]
+        self.setup_main_logger(level, fmt, logging.StreamHandler(sys.stderr))
+
+        tarpit_classes: list[BaseTarpit] = get_all_subclasses(BaseTarpit)
+
+        self.available_tarpits: dict[str, typing.Any] = {}
+
+        # set this to dict[str,BaseTarpit] will make mypy complain
+        for c in tarpit_classes:
+            if c.PATTERN_NAME != BaseTarpit.PATTERN_NAME:
+                self.available_tarpits.update({c.PATTERN_NAME: c})
+                logging.debug("discovered tarpit pattern: %s", c.PATTERN_NAME)
+
+        for c in tarpit_classes:
+            for alias in c.PATTERN_NAME_ALIAS:
+                self.available_tarpits.update({alias: c})
+                logging.debug(
+                    "discovered tarpit pattern alias: %s as %s",
+                    alias,
+                    c.PATTERN_NAME,
+                )
+
+        pass
+
+    async def async_run_server(self):
+        try:
+            async with asyncio.TaskGroup() as tg:
+                for i in self.server:
+                    try:
+                        s = await i
+                        addr = s.sockets[0].getsockname()
+                        logging.debug(f"asyncio serving on {addr}")
+                        tg.create_task(s.serve_forever())
+                    except OSError as e:
+                        logging.error("failed to run server. err: `%s`", e)
+                # TODO: config Tracer here
+                clean_privilege()
+        except asyncio.CancelledError:
+            logging.warning(
+                "`async_run_server` task cancelled. shutting down worker."
+            )
+        finally:
+            logging.info("shutdown complete.")
+
+    def start_all_server(self):
+        with asyncio.Runner() as runner:
+            runner.run(self.async_run_server())
+        pass
+
+    def prepare_all_server(self):
+        for name, tarpit_config in self.merged_config["tarpits"].items():
+            tarpit_config["pattern"] = tarpit_config["pattern"].casefold()
+            logging.info(
+                "tarpitd is setting up %s (%s)", tarpit_config["pattern"], name
+            )
+
+            logging.debug("config: %s", tarpit_config)
+
+            real_tarpit_conf = {"name": name} | tarpit_config
+
+            # Remove necessary item in config
+            real_tarpit_conf.pop("bind")
+            real_tarpit_conf.pop("pattern")
+
+            client_trace_level_map = {"none": 0, "access": 1, "request": 2}
+            real_tarpit_conf["trace_level"] = client_trace_level_map[
+                real_tarpit_conf["trace"]
+            ]
+            real_tarpit_conf.pop("trace")
+
+            if self.available_tarpits.get(tarpit_config["pattern"]):
+                pit: BaseTarpit = self.available_tarpits[
+                    tarpit_config["pattern"]
+                ](**real_tarpit_conf)
+            else:
+                logging.error(
+                    "pattern %s does not exist!", tarpit_config["pattern"]
+                )
+                exit()
+
+            logging.info("server bind: {}".format(tarpit_config["bind"]))
+            logging.warning(
+                "tarpitd is serving %s (%s)", tarpit_config["pattern"], name
+            )
+            for i in tarpit_config["bind"]:
+                self.server.append(
+                    pit.create_server(host=i["host"], port=i["port"])
+                )
+            pass
+
+    @staticmethod
+    def setup_main_logger(level, fmt, handler):
+        logger = logging.getLogger()
+        logger.setLevel(level)
+
+        formatter = logging.Formatter(
+            fmt=fmt,
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+
         handler.setFormatter(formatter)
-        ct_logger.addHandler(handler)
-        logging.info(
-            "saving client trace to `%s`",
-            merged_config["logging"]["trace"],
-        )
-    else:
-        logging.info("no tarpit configured with trace, will not log it")
 
-    tarpit_classes: list[BaseTarpit] = get_all_subclasses(BaseTarpit)
-    available_tarpits: dict[str, typing.Any] = {}
-    # set this to dict[str,BaseTarpit] will make mypy complain
-    for c in tarpit_classes:
-        if c.PATTERN_NAME != BaseTarpit.PATTERN_NAME:
-            available_tarpits.update({c.PATTERN_NAME: c})
-            logging.debug("discovered tarpit pattern: %s", c.PATTERN_NAME)
+        # Properly clean existing handlers
+        for h in logger.handlers:
+            logger.removeHandler(h)
+            if hasattr(h, "close"):
+                h.close()
+        logger.addHandler(handler)
+        pass
 
-    for name, tarpit_config in config["tarpits"].items():
-        tarpit_config["pattern"] = tarpit_config["pattern"].casefold()
-        logging.info(
-            "tarpitd is setting up %s (%s)", tarpit_config["pattern"], name
-        )
-
-        logging.debug("config: %s", tarpit_config)
-
-        real_tarpit_conf = {"name": name} | tarpit_config
-        real_tarpit_conf.pop("bind")  # Remove it since its useless
-
-        if available_tarpits.get(tarpit_config["pattern"]):
-            pit: BaseTarpit = available_tarpits[tarpit_config["pattern"]](
-                **real_tarpit_conf
-            )
-        else:
-            logging.error(
-                "pattern %s does not exist!", tarpit_config["pattern"]
-            )
-            exit()
-
-        logging.info("server bind: {}".format(tarpit_config["bind"]))
-        logging.warning(
-            "tarpitd is serving %s (%s)", tarpit_config["pattern"], name
-        )
-        for i in tarpit_config["bind"]:
-            server.append(pit.create_server(host=i["host"], port=i["port"]))
-
-    run_server(server)
+    def run(self):
+        self.prepare_all_server()
+        self.start_all_server()
+        pass
 
 
 def display_manual_unix(name):
@@ -1904,7 +2063,7 @@ def display_manual_unix(name):
 
 def main_cli():
     logging.basicConfig(
-        format="[%(levelname)-8s] %(message)s", level=logging.ERROR
+        format="[%(levelname)-8s] %(message)s", level=logging.WARNING
     )
 
     import argparse
@@ -1939,6 +2098,25 @@ def main_cli():
         epilog=epilog,
     )
 
+    group = serve_parser.add_mutually_exclusive_group(required=True)
+
+    group.add_argument(
+        "-c",
+        "--config",
+        help="specify config file",
+        metavar="FILE",
+        type=argparse.FileType("rb"),
+    )
+
+    group.add_argument(
+        "-p",
+        "--pattern",
+        help="serve specified tarpit pattern",
+        metavar="PATTERN:HOST:PORT",
+        action="extend",
+        nargs="+",
+    )
+
     serve_parser.add_argument(
         "-v",
         "--verbose",
@@ -1949,69 +2127,67 @@ def main_cli():
     serve_parser.add_argument(
         "-r",
         "--rate-limit",
-        help="set data transfer rate limit",
+        help="set data transfer rate limit [only applies to `--pattern` defined tarpits]",
         action="store",
         type=int,
         default=None,
     )
 
     serve_parser.add_argument(
-        "-c",
-        "--config",
-        help="specify config file",
-        metavar="FILE",
-        type=argparse.FileType("rb"),
-    )
-
-    serve_parser.add_argument(
         "-t",
         "--trace",
-        help="set client trace level",
+        help="set client trace level [only applies to `--pattern` defined tarpits]",
         choices=["none", "access", "request"],
         default="none",
     )
 
     serve_parser.add_argument(
-        "--log-trace",
-        help="log client trace to file",
-        metavar="FILE",
-        nargs="?",
-        const="-",
-        type=argparse.FileType("wb"),
-    )
-
-    serve_parser.add_argument(
         "-e",
         "--validate-client",
-        help="check the client before sending data",
+        help="check the client before sending data [only applies to `--pattern` defined tarpits]",
         const="check",
         nargs="?",
         choices=["check", "none"],
     )
 
     serve_parser.add_argument(
-        "-p",
-        "--pattern",
-        help="serve specified tarpit pattern",
-        metavar="PATTERN:HOST:PORT",
-        action="extend",
-        nargs="+",
+        "--standalone",
+        help="serve tarpit without supervisor process",
+        action="store_true",
+    )
+
+    serve_parser.add_argument(
+        "--config-format",
+        help="set the config format",
+        const="toml",
+        nargs="?",
+        choices=["toml", "json", "jsonl"],
     )
 
     def serve(args):
-        if args.pattern and args.config:
-            print("--pattern conflicts with --config")
-            serve_parser.parse_args(["--help"])
-        elif args.pattern:
-            run_from_cli(args)
+        if args.pattern:
+            conf = generate_conf_from_cli(args)
         elif args.config:
-            import tomllib
+            match args.config_format:
+                case "toml":
+                    import tomllib
 
-            run_from_config_dict(tomllib.load(args.config))
+                    conf = tomllib.load(args.config)
+                case "json":
+                    conf = json.load(args.config)
+                case "jsonl":
+                    # Just read the first line
+                    conf = json.loads(args.config.readline())
         else:
             print("No pattern or config given!")
             serve_parser.parse_args(["--help"])
-        pass
+            exit()
+        if args.standalone:
+            worker = TarpitWorker(conf)
+            worker.run()
+        else:
+            supervisor = TarpitSupervisor(conf)
+            supervisor.run()
 
     serve_parser.set_defaults(func=serve)
 
@@ -2042,21 +2218,6 @@ def main_cli():
         top_parser.parse_args(["--help"])
     else:
         args.func(args)
-
-    # if args.manual:
-    #     display_manual_unix(args.manual)
-    #     pass
-    # elif args.config:
-    #     import tomllib
-
-    #     if args.serve:
-    #         print("--serve conflicts with --config")
-    #         exit()
-    #     run_from_config_dict(tomllib.load(args.config))
-    # elif args.serve:
-    #     run_from_cli(args)
-    # else:
-    #     parser.parse_args(["--help"])
 
 
 if __name__ == "__main__":
