@@ -3,6 +3,7 @@ import asyncio
 import tarpitd
 import time
 import typing
+import dataclasses
 
 
 class TestTarpit(unittest.IsolatedAsyncioTestCase):
@@ -92,7 +93,6 @@ class TestHttpTarpit(TestTarpit):
         self.addAsyncCleanup(self.on_cleanup)
 
 
-
 class TestTlsTarpit(TestTarpit):
     def create_tarpit_obj(self):
         t = tarpitd.TlsHelloRequestTarpit(rate_limit=0)
@@ -123,7 +123,6 @@ class TestTlsSlowHelloTarpit(TestTarpit):
         writer.close()
         await writer.wait_closed()
         self.addAsyncCleanup(self.on_cleanup)
-
 
 
 # NEO
@@ -222,7 +221,7 @@ class NeoTestTarpit(unittest.IsolatedAsyncioTestCase):
         if isinstance(excepted_response, bytes):
             data = await read_with_timeout(reader, len(excepted_response), 10)
             await asyncio.sleep(1)
-            self.assertIn(excepted_response,data)
+            self.assertIn(excepted_response, data)
         else:
             await asyncio.sleep(1)
             await excepted_response(reader, writer)
@@ -231,7 +230,10 @@ class NeoTestTarpit(unittest.IsolatedAsyncioTestCase):
     async def test_all(self):
         if self.__class__ is not NeoTestTarpit:
             for i in self.tarpits:
-                print("running %s, %s, %s" % (i.port, i.server, i.test_set._asdict()))
+                print(
+                    "running %s, %s, %s"
+                    % (i.port, i.server, i.test_set._asdict())
+                )
                 await self.do_test_set(i)
 
 
@@ -295,14 +297,25 @@ class T_HttpDeflateSize(NeoTestTarpit):
 
 class T_SshValidatorExtra(NeoTestTarpit):
     class T(tarpitd.SshTransHoldTarpit):
+        @dataclasses.dataclass
         class ValidatorConfig(tarpitd.SshTransHoldTarpit.ValidatorConfig):
-            response_failed = b"BAD_RESPONSE"
+            response_failed: bytes = b"BAD_RESPONSE"
+
+            # Note: needs type annotation for proper dataclass assignment
 
     TARPIT = T
 
     TEST_SET: list[TarpitTestSet] = [
-        TarpitTestSet(request=b"SSH-FAKE", excepted_response=b"SSH-"),
-        TarpitTestSet(request=b"BAD_", excepted_response=b"BAD"),
+        TarpitTestSet(
+            request=b"SSH-FAKE",
+            excepted_response=b"SSH-",
+            config={"rate_limit": 1024, "validation_level": 1},
+        ),
+        TarpitTestSet(
+            request=b"BAD_",
+            excepted_response=b"BAD",
+            config={"rate_limit": 1024, "validation_level": 1},
+        ),
     ]
 
 
@@ -326,7 +339,9 @@ class T_SshEndless(NeoTestTarpit):
 
     def _setup(self):
         self.TEST_SET.append(
-            TarpitTestSet(request=b"SSH-FAKE\r\n", excepted_response=self.have_lines)
+            TarpitTestSet(
+                request=b"SSH-FAKE\r\n", excepted_response=self.have_lines
+            )
         )
 
 

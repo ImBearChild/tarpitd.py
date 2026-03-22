@@ -405,16 +405,16 @@ import os
 
 # module for cli use only will be import when needed
 
-## Helper Classes
+## Helper things
 
 
 class BytesLiteralEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, bytes):
-            return repr(obj)
-        elif isinstance(obj, bytearray):
-            return repr(obj)[10:-1]
-        return json.JSONEncoder.default(self, obj)
+    def default(self, o):
+        if isinstance(o, bytes):
+            return repr(o)
+        elif isinstance(o, bytearray):
+            return repr(o)[10:-1]
+        return json.JSONEncoder.default(self, o)
 
 
 class RingBuffer:
@@ -443,6 +443,105 @@ class RingBuffer:
         return self.size
 
 
+def validate_dataclass_types(instance) -> list:
+    """
+    Validate that all fields in a dataclass instance match their type annotations.
+
+    Returns a list of error messages for mismatched fields.
+    """
+    if not dataclasses.is_dataclass(instance):
+        raise TypeError(
+            f"Expected a dataclass instance, got {type(instance).__name__}"
+        )
+
+    errors = []
+    type_hints = typing.get_type_hints(type(instance))
+
+    for field in dataclasses.fields(instance):
+        if field.name not in type_hints:
+            continue
+
+        expected_type = type_hints[field.name]
+        actual_value = getattr(instance, field.name)
+
+        if not _is_instance_of(actual_value, expected_type):
+            errors.append(
+                f"Field '{field.name}': expected {expected_type}, got {type(actual_value).__name__}"
+            )
+
+    return errors
+
+
+def _is_instance_of(value, type_hint) -> bool:
+    """Helper to check type against generic type hints."""
+    origin = typing.get_origin(type_hint)
+
+    if origin is None:
+        return isinstance(value, type_hint)
+
+    if origin is list:
+        if not isinstance(value, list):
+            return False
+        item_type = (
+            typing.get_args(type_hint)[0]
+            if typing.get_args(type_hint)
+            else object
+        )
+        return all(isinstance(item, item_type) for item in value)
+
+    if origin is dict:
+        if not isinstance(value, dict):
+            return False
+        args = typing.get_args(type_hint)
+        if len(args) >= 2:
+            key_type, val_type = args[0], args[1]
+            return all(
+                isinstance(k, key_type) and isinstance(v, val_type)
+                for k, v in value.items()
+            )
+        return True
+
+    if origin is tuple:
+        if not isinstance(value, tuple):
+            return False
+        args = typing.get_args(type_hint)
+        if args:
+            if len(args) == 1 and args[0] != ():
+                item_type = args[0]
+                return all(isinstance(item, item_type) for item in value)
+            if len(value) != len(args):
+                return False
+            return all(isinstance(item, t) for item, t in zip(value, args))
+        return True
+
+    if origin is set:
+        if not isinstance(value, set):
+            return False
+        item_type = (
+            typing.get_args(type_hint)[0]
+            if typing.get_args(type_hint)
+            else object
+        )
+        return all(isinstance(item, item_type) for item in value)
+
+    if origin is typing.Union:
+        args = typing.get_args(type_hint)
+        return any(_is_instance_of(value, arg) for arg in args)
+
+    return isinstance(value, origin)
+
+
+def validate_dataclass_types_strict(instance) -> None:
+    """
+    Validate dataclass field types and raise an exception if any mismatch.
+    """
+    errors = validate_dataclass_types(instance)
+    if errors:
+        raise TypeError(
+            "Type validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
+        )
+
+
 ## Event dataclasses
 
 
@@ -466,7 +565,7 @@ class ConnEvent(Event):
     tarpit_pattern: str
     peername: tuple[str, int]
     sockname: tuple[str, int]
-    meta: None | dict = None
+    metadata: None | dict = None
 
 
 class WorkerEventEnum(enum.StrEnum):
@@ -481,7 +580,7 @@ class WorkerEventEnum(enum.StrEnum):
 class WorkerEvent(Event):
     tarpit_name: None | str = None
     tarpit_pattern: None | str = None
-    meta: None | dict = None
+    metadata: None | dict = None
 
 
 def _decode_event_from_dict(d: dict):
@@ -504,7 +603,7 @@ class TarpitTracer:
         sockname,
         metadata,
     ):
-        assert any(event == e for e in ConnEventEnum)
+        assert event in [m.value for m in ConnEventEnum]
 
         data = ConnEvent(
             time=time.time(),
@@ -513,6 +612,7 @@ class TarpitTracer:
             tarpit_pattern=pattern,
             peername=peername,
             sockname=sockname,
+            metadata=metadata,
         )
 
         sys.stdout.write(
@@ -610,7 +710,7 @@ class TarpitWriter:
 
 class ReaderProtocol(typing.Protocol):
     async def read(self, n: int = -1) -> bytes:
-        pass
+        raise NotImplementedError
 
 
 class TarpitReader:
@@ -705,24 +805,75 @@ class BaseTarpit:
 
     @dataclasses.dataclass
     class RuntimeConfig:
-        name: str = "fixme:no_name"
+        name: str = "_no_name_defined"
         max_clients: int = 4096
-        # Not real connection count. More than 4096 will be created, but will wait in queue
+        # Note: max_clients is not real connection count.
+        # More than 4096 will be created, but will wait in queue. See:
         # https://docs.python.org/3/library/socket.html#socket.socket.listen
         # default backlog is 100
         rate_limit: int = 8
-        trace_level: int = 0  # 0 = none, 1=access, 2=request
-        validation_level: int = 0  # 0 = none, 1=check, 2=probe
+        trace_level: int = 0
+        validation_level: int = 0
 
-        def update_from_dict(self, config_data: dict):
+        _TRACE_LEVEL_MAP: typing.ClassVar[dict] = {
+            "none": 0,
+            "access": 1,
+            "request": 2,
+            0: 0,
+            1: 1,
+            2: 2,
+        }
+        _VALIDATION_LEVEL_MAP: typing.ClassVar[dict] = {
+            "none": 0,
+            "check": 1,
+            "true": 2,
+            0: 0,
+            1: 1,
+            2: 2,
+        }
+
+        @classmethod
+        def from_dict(cls, config_data: dict) -> "BaseTarpit.RuntimeConfig":
+            conf = {}
             for key, value in config_data.items():
-                if value is not None:
-                    if hasattr(self, key):
-                        setattr(self, key, value)
-                    else:
-                        logging.warning(
-                            "not handled config k:`%s`, v:`%s`", key, value
-                        )
+                if key == "trace_level":
+                    conf["trace_level"] = cls._convert_trace_level(value)
+                elif key == "validation_level":
+                    conf["validation_level"] = cls._convert_validation_level(
+                        value
+                    )
+                elif value is None:
+                    pass  # See None as default
+                else:
+                    conf[key] = value
+            # print(cls(**conf), file=sys.stderr)
+            return cls(**conf)
+
+        @classmethod
+        def _convert_config_value(
+            cls, value: str | int, mapping: dict, field_name: str
+        ) -> int:
+            if isinstance(value, str):
+                value = value.lower()
+            try:
+                return mapping[value]
+            except KeyError:
+                logging.warning(
+                    "invalid %s: %r, using default 0", field_name, value
+                )
+                return 0
+
+        @classmethod
+        def _convert_trace_level(cls, value: str | int) -> int:
+            return cls._convert_config_value(
+                value, cls._TRACE_LEVEL_MAP, "trace_level"
+            )
+
+        @classmethod
+        def _convert_validation_level(cls, value: str | int) -> int:
+            return cls._convert_config_value(
+                value, cls._VALIDATION_LEVEL_MAP, "validation_level"
+            )
 
     def _setup(self):
         """
@@ -738,7 +889,7 @@ class BaseTarpit:
 
         return
 
-    def __trace_client(
+    def _trace_client(
         self, writer: asyncio.StreamWriter, event: ConnEventEnum, meta=None
     ) -> None:
         _tracer.trace_conn_event(
@@ -770,14 +921,14 @@ class BaseTarpit:
                 tarpit_reader = TarpitReader(
                     reader_background_log, reader=reader
                 )
-                self.__trace_client(writer, ConnEventEnum.OPEN)
+                self._trace_client(writer, ConnEventEnum.OPEN)
                 await self._handler(tarpit_reader, tarpit_writer)
             except (
                 BrokenPipeError,
                 ConnectionAbortedError,
                 ConnectionResetError,
             ) as e:
-                self.__trace_client(
+                self._trace_client(
                     writer,
                     ConnEventEnum.ERROR,
                     meta={"err": e.__class__.__name__, "msg": str(e)},
@@ -785,8 +936,8 @@ class BaseTarpit:
             except asyncio.exceptions.CancelledError:
                 self.logger.debug("task cancelled")
             except OSError as e:  # type: ignore
-                if hasattr(e, "winerror") and (e.winerror == 121):
-                    self.__trace_client(
+                if hasattr(e, "winerror") and getattr(e, "winerror") == 121:
+                    self._trace_client(
                         writer,
                         ConnEventEnum.ERROR,
                         meta={"err": e.__class__.__name__, "msg": str(e)},
@@ -796,7 +947,7 @@ class BaseTarpit:
             except Exception as e:
                 self.logger.exception(e)
             finally:
-                self.__trace_client(
+                self._trace_client(
                     writer,
                     ConnEventEnum.CLOSE,
                     meta={"request": tarpit_reader.dump_data()},
@@ -831,11 +982,15 @@ class BaseTarpit:
         **options can be used to pass argument
         """
         self.logger = logging.getLogger(__name__)
-        # Merge config
-        self._config: BaseTarpit.RuntimeConfig = self.RuntimeConfig()
-        # Use self.RuntimeConfig() here, so subclass can impl their own
+        self._config: BaseTarpit.RuntimeConfig = self.RuntimeConfig.from_dict(
+            config
+        )
 
-        self._config.update_from_dict(config)
+        result = validate_dataclass_types(self._config)
+        if len(result) > 0:
+            self.logger.error(result)
+            raise TypeError("Wrong data type in RuntimeConfig")
+
         self.logger.info(
             "server config: {}".format(self._config),
             dataclasses.asdict(self._config),
@@ -847,8 +1002,9 @@ class BaseTarpit:
 
 
 class StaticTarpit(BaseTarpit):
+    @dataclasses.dataclass
     class ValidatorConfig:
-        head_allowlist: list[bytes] = []
+        head_allowlist: tuple[bytes, ...] = (b"",)
         timeout: float = 2
         read_len: int = 4
         banner: bytes = b""
@@ -867,6 +1023,8 @@ class StaticTarpit(BaseTarpit):
 
     _validator_support: int = 0
     _validator_config: ValidatorConfig
+    # This is an instance of dataclass, so it can be modified by child classes
+    # at runtime without breaking default values
 
     async def _validate_client(self, reader, writer):
         conf = self._validator_config
@@ -901,8 +1059,8 @@ class StaticTarpit(BaseTarpit):
         )
         if result.expected:
             if result.data:  # result.data == None means skipped
-                self.__trace_client(
-                    tarpit_writer, "validate", meta=result._asdict()
+                self._trace_client(
+                    tarpit_writer, ConnEventEnum.VALIDATE, meta=result._asdict()
                 )
             tarpit_writer.change_rate_limit(self._config.rate_limit)
             await asyncio.gather(
@@ -912,8 +1070,8 @@ class StaticTarpit(BaseTarpit):
                 self.__drain_remaining_data(tarpit_reader, tarpit_writer),
             )
         else:
-            self.__trace_client(
-                tarpit_writer, "validate", meta=result._asdict()
+            self._trace_client(
+                tarpit_writer, ConnEventEnum.VALIDATE, meta=result._asdict()
             )
             await asyncio.sleep(random.randrange(16, 32))
         tarpit_writer.close()
@@ -923,11 +1081,16 @@ class StaticTarpit(BaseTarpit):
         super().__init__(**config)
         # Merge validator config
         self._validator_config = self.ValidatorConfig()
+        assert (
+            self.ValidatorConfig().head_allowlist
+            == self.ValidatorConfig.head_allowlist
+        )
         self.__runtime_validate_client: StaticTarpit.ValidatorCallable
         # setup client_validation
         if self._config.validation_level:
             match self._validator_support:
                 case 1:
+                    self.logger.debug("client_validation enabled")
                     self.__runtime_validate_client = self._validate_client
                 case _:
                     self.__runtime_validate_client = self.__fake_validate_client
@@ -935,6 +1098,7 @@ class StaticTarpit(BaseTarpit):
                         "this tarpit does not support client_validation"
                     )
         else:
+            self.logger.debug("client_validation disabled")
             self.__runtime_validate_client = self.__fake_validate_client
             pass
 
@@ -1026,7 +1190,7 @@ class HttpTarpit(StaticTarpit):
 
     @dataclasses.dataclass
     class ValidatorConfig(StaticTarpit.ValidatorConfig):
-        head_allowlist = [b"GET ", b"HEAD"]
+        head_allowlist: tuple[bytes] = (b"GET ", b"HEAD")
 
     class Connection:
         @staticmethod
@@ -1251,8 +1415,8 @@ class HttpBadHtmlTarpit(HttpPreGeneratedTarpit):
 class HttpDeflateTarpit(HttpPreGeneratedTarpit):
     @dataclasses.dataclass
     class RuntimeConfig(HttpPreGeneratedTarpit.RuntimeConfig):
-        rate_limit = 16
-        compression_type = "gzip"
+        rate_limit: int = 16
+        compression_type: str = "gzip"
         pass
 
     def _make_deflate(self, compressobj):
@@ -1280,9 +1444,9 @@ class HttpDeflateSizeBombTarpit(HttpDeflateTarpit):
     PATTERN_NAME: str = "http_deflate_size_bomb"
 
     @dataclasses.dataclass
-    class RuntimeConfig(HttpTarpit.RuntimeConfig):
-        rate_limit = 16
-        compression_type = "deflate"
+    class RuntimeConfig(HttpDeflateTarpit.RuntimeConfig):
+        rate_limit: int = 16
+        compression_type: str = "deflate"
         pass
 
     def _make_deflate(self, compressobj):
@@ -1337,12 +1501,28 @@ class SshTarpit(StaticTarpit):
 
     _validator_support = 1
 
-    @dataclasses.dataclass
-    class ValidatorConfig(StaticTarpit.ValidatorConfig):
-        head_allowlist = [b"SSH-"]
-        response_failed = b""  # Cannot refer SSH_VERSION_STRING here
+    # Can not refer to var from nested class, so we create it from a 
+    # programmtic way.
+    ValidatorConfig = dataclasses.make_dataclass(
+        "ValidatorConfig",
+        [
+            (
+                "head_allowlist",
+                tuple,
+                dataclasses.field(
+                    default=(b"SSH-",),
+                ),
+            ),
+            (
+                "response_failed",
+                bytes,
+                dataclasses.field(default=SSH_VERSION_STRING),
+            ),
+        ],
+        bases=(StaticTarpit.ValidatorConfig,),
+    )
 
-    ValidatorConfig.response_failed = SSH_VERSION_STRING
+    # assert ValidatorConfig().response_failed == SSH_VERSION_STRING
 
     class SshMegNumber(enum.IntEnum):
         """
@@ -1488,7 +1668,7 @@ class TlsTarpit(StaticTarpit):
 
     @dataclasses.dataclass
     class ValidatorConfig(StaticTarpit.ValidatorConfig):
-        head_allowlist = [b"\x16\x03"]
+        head_allowlist: tuple[bytes] = (b"\x16\x03",)
 
     # See: TLS 1.2 RFC ttps://www.rfc-editor.org/rfc/rfc5246#page-15
     class TlsRecordContentType(enum.IntEnum):
@@ -1630,13 +1810,13 @@ class FtpTarpit(StaticTarpit):
 
     @dataclasses.dataclass
     class ValidatorConfig(StaticTarpit.ValidatorConfig):
-        banner = (
+        banner: bytes = (
             # b"220 (vsFTPd 3.0.5)\r\n"
             b"220 FileZilla Server 1.10.1\r\n"
             # b"220 Please visit https://filezilla-project.org/\r\n"
         )
-        head_allowlist = [b"USER"]
-        response_failed = b"530 Please login with USER.\r\n"
+        head_allowlist: tuple[bytes] = (b"USER",)
+        response_failed: bytes = b"530 Please login with USER.\r\n"
 
     pass
 
@@ -1659,12 +1839,12 @@ class SmtpTarpit(StaticTarpit):
 
     @dataclasses.dataclass
     class ValidatorConfig(StaticTarpit.ValidatorConfig):
-        banner = (
+        banner: bytes = (
             b"220 [127.0.0.1] ESMTP Sendmail 8.16.1/8.16.1; "
             b"Thu, 01 Sep 1993 00:00:00 +0000\r\n"
         )
-        head_allowlist = [b"EHLO", b"HELO"]
-        response_failed = b"502 Error: command not implemented.\r\n"
+        head_allowlist: tuple[bytes] = (b"EHLO", b"HELO")
+        response_failed: bytes = b"502 Error: command not implemented.\r\n"
 
     pass
 
@@ -1723,8 +1903,8 @@ def generate_conf_from_cli(args, old_config: dict = {}):
             "pattern": pattern,
             "rate_limit": args.rate_limit,
             "bind": [{"host": host, "port": port}],
-            "validation": args.validate_client,
-            "trace": args.trace,
+            "validation_level": args.validate_client,
+            "trace_level": args.trace,
         }
         number += 1
 
@@ -1888,6 +2068,7 @@ class TarpitSupervisor:
         return conf_bytes
 
     async def handle_worker_stdout(self, event):
+        logging.debug(event)
         self.event_buffer.append(event)
         pass
 
@@ -1917,6 +2098,7 @@ class TarpitSupervisor:
             if not line:
                 break
             line = str(line, encoding="utf8")
+            # logging.debug(line)
             event_dict = json.loads(line)
             ev = _decode_event_from_dict(event_dict)
             await self.handle_worker_stdout(event=ev)
@@ -1996,12 +2178,6 @@ class TarpitWorker:
             # Remove necessary item in config
             real_tarpit_conf.pop("bind")
             real_tarpit_conf.pop("pattern")
-
-            client_trace_level_map = {"none": 0, "access": 1, "request": 2}
-            real_tarpit_conf["trace_level"] = client_trace_level_map[
-                real_tarpit_conf["trace"]
-            ]
-            real_tarpit_conf.pop("trace")
 
             if self.available_tarpits.get(tarpit_config["pattern"]):
                 pit: BaseTarpit = self.available_tarpits[
