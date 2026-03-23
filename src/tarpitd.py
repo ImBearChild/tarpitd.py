@@ -542,6 +542,14 @@ def validate_dataclass_types_strict(instance) -> None:
         )
 
 
+## Fingerprint
+# Like https://github.com/drk1wi/portspoof and 
+# (https://www.vicarius.io/vsociety/posts/research-evading-portspoof-solution)
+class Fingerprint():
+    def __init__(self, ):
+        pass
+    pass
+
 ## Event dataclasses
 
 
@@ -724,13 +732,13 @@ class TarpitReader:
     """
 
     def _record_data(self, data: bytes):
-        if self._recording:
+        if self._recording_len:
             buffer_len = len(self.__buffer)
             data_len = len(data)
-            if buffer_len + data_len < self._recording:
+            if buffer_len + data_len < self._recording_len:
                 self.__buffer.extend(data)
-            elif buffer_len < self._recording:
-                free_space = self._recording - buffer_len
+            elif buffer_len < self._recording_len:
+                free_space = self._recording_len - buffer_len
                 if data_len <= free_space:
                     self.__buffer.extend(data)
                 else:
@@ -740,7 +748,7 @@ class TarpitReader:
 
     async def drain_data(self):
         buffer_len = len(self.__buffer)
-        if buffer_len < self._recording:
+        if buffer_len < self._recording_len:
             try:
                 # This is some kind of tricky
                 # Because failed write will cause reader to raise exception
@@ -752,7 +760,7 @@ class TarpitReader:
                 self.__buffer.extend(
                     await read_with_timeout(
                         reader=self.__reader,
-                        n=self._recording - buffer_len,
+                        n=self._recording_len - buffer_len,
                         timeout=1,
                     )
                 )
@@ -761,7 +769,7 @@ class TarpitReader:
         pass
 
     def dump_data(self):
-        if self._recording:
+        if self._recording_len:
             return self.__buffer
         else:
             return None
@@ -771,10 +779,12 @@ class TarpitReader:
         self._record_data(data)
         return data
 
-    def __init__(self, recording, reader: asyncio.StreamReader) -> None:
+    def __init__(
+        self, recording_len: int, reader: asyncio.StreamReader
+    ) -> None:
         self.__reader = reader
         self.__buffer = bytearray()
-        self._recording = recording  # Zero is disable.
+        self._recording_len: int = recording_len  # Zero is disable.
 
     pass
 
@@ -913,7 +923,10 @@ class BaseTarpit:
     ):
         async with self.sem:
             try:
-                tarpit_writer = TarpitWriter(128, writer=writer)
+                tarpit_writer = TarpitWriter(
+                    128,
+                    writer=writer,
+                )
                 if self._config.trace_level >= 2:
                     reader_background_log = 1024
                 else:
@@ -950,7 +963,7 @@ class BaseTarpit:
                 self._trace_client(
                     writer,
                     ConnEventEnum.CLOSE,
-                    meta={"request": tarpit_reader.dump_data()},
+                    meta={"recorded_request": tarpit_reader.dump_data()},
                 )
 
     async def create_server(self, host, port, start_serving=False):
@@ -1501,7 +1514,7 @@ class SshTarpit(StaticTarpit):
 
     _validator_support = 1
 
-    # Can not refer to var from nested class, so we create it from a 
+    # Can not refer to var from nested class, so we create it from a
     # programmtic way.
     ValidatorConfig = dataclasses.make_dataclass(
         "ValidatorConfig",
@@ -1811,8 +1824,8 @@ class FtpTarpit(StaticTarpit):
     @dataclasses.dataclass
     class ValidatorConfig(StaticTarpit.ValidatorConfig):
         banner: bytes = (
-            # b"220 (vsFTPd 3.0.5)\r\n"
-            b"220 FileZilla Server 1.10.1\r\n"
+            b"220 (vsFTPd 3.0.5)\r\n"
+            # b"220 FileZilla Server 1.10.1\r\n"
             # b"220 Please visit https://filezilla-project.org/\r\n"
         )
         head_allowlist: tuple[bytes] = (b"USER",)
