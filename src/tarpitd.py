@@ -1487,7 +1487,10 @@ class BaseTarpit:
         return
 
     def _trace_client(
-        self, writer: asyncio.StreamWriter, event: ConnEventEnum, meta=None
+        self,
+        writer: "asyncio.StreamWriter | TarpitWriter",
+        event: ConnEventEnum,
+        meta=None,
     ) -> None:
         _tracer.trace_conn_event(
             event=event,
@@ -1509,6 +1512,8 @@ class BaseTarpit:
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ):
         async with self.sem:
+            tarpit_writer: TarpitWriter | None = None
+            tarpit_reader: TarpitReader | None = None
             try:
                 tarpit_writer = TarpitWriter(
                     128,
@@ -1547,10 +1552,15 @@ class BaseTarpit:
             except Exception as e:
                 self.logger.exception(e)
             finally:
+                recorded_request = (
+                    tarpit_reader.dump_data()
+                    if tarpit_reader is not None
+                    else None
+                )
                 self._trace_client(
                     writer,
                     ConnEventEnum.CLOSE,
-                    meta={"recorded_request": tarpit_reader.dump_data()},
+                    meta={"recorded_request": recorded_request},
                 )
 
     async def create_server(self, host, port, start_serving=False):
@@ -1653,12 +1663,14 @@ class StaticTarpit(BaseTarpit):
             except asyncio.TimeoutError:
                 pass
 
-    async def _handler(self, tarpit_reader, tarpit_writer):
+    async def _handler(self, reader, writer):
+        tarpit_writer = typing.cast(TarpitWriter, writer)
+        tarpit_reader = typing.cast(TarpitReader, reader)
         result = await self.__runtime_validate_client(
             tarpit_reader, tarpit_writer
         )
         if result.expected:
-            if result.data:  # result.data == None means skipped
+            if result.data: # result.data == None means skipped
                 self._trace_client(
                     tarpit_writer, ConnEventEnum.VALIDATE, meta=result._asdict()
                 )
@@ -1707,7 +1719,9 @@ class StaticTarpit(BaseTarpit):
 
 
 class DynmanicTarpit(BaseTarpit):
-    async def _handler(self, tarpit_reader, tarpit_writer):
+    async def _handler(self, reader, writer):
+        tarpit_writer = typing.cast(TarpitWriter, writer)
+        tarpit_reader = typing.cast(TarpitReader, reader)
         tarpit_writer.rate
         return self.handle_client(tarpit_reader, tarpit_writer)
 
@@ -1790,9 +1804,12 @@ class HttpTarpit(StaticTarpit):
 
     @dataclasses.dataclass
     class ValidatorConfig(StaticTarpit.ValidatorConfig):
-        head_allowlist: tuple[bytes] = (b"GET ", b"HEAD")
+        head_allowlist: tuple[bytes, ...] = (b"GET ", b"HEAD")
 
     class Connection:
+        writer: TarpitWriter
+        send_raw: typing.Callable[[bytes | bytearray], typing.Awaitable[None]]
+
         @staticmethod
         def to_bytes(data) -> bytes:
             t = type(data)
@@ -1835,7 +1852,7 @@ class HttpTarpit(StaticTarpit):
 
         async def send_content(
             self,
-            content: bytes,
+            content: bytes | bytearray,
             type_: bytes = b"",
             encoding: bytes = b"",
         ):
@@ -1855,7 +1872,12 @@ class HttpTarpit(StaticTarpit):
 
         def __init__(self, writer: TarpitWriter) -> None:
             self.writer = writer
-            self.send_raw = writer.write_and_drain
+            self.send_raw: typing.Callable[
+                [bytes | bytearray], typing.Awaitable[None]
+            ] = typing.cast(
+                typing.Callable[[bytes | bytearray], typing.Awaitable[None]],
+                writer.write_and_drain,
+            )
             pass
 
         pass
@@ -1864,7 +1886,7 @@ class HttpTarpit(StaticTarpit):
         pass
 
     async def handle_client(self, writer: TarpitWriter):
-        conn = HttpTarpit.Connection(writer)
+        conn: HttpTarpit.Connection = HttpTarpit.Connection(writer)
         await self._http_handler(conn)
         pass
 
@@ -1914,7 +1936,7 @@ class HttpPreGeneratedTarpit(HttpTarpit):
         pass
 
     class Content(typing.NamedTuple):
-        data: bytes
+        data: bytes | bytearray
         type_: str = ""
         encoding: str = ""
         pass
@@ -2024,20 +2046,22 @@ class HttpDeflateTarpit(HttpPreGeneratedTarpit):
 
     def _generate_content(self):
         self._deflate_content = b""
-        self.compression_type = (
-            self._config.compression_type  # pytype: disable=attribute-error
+        self.compression_type = typing.cast(
+            str, getattr(self._config, "compression_type", "gzip")
         )
         match self.compression_type:
             case "gzip":
                 compressobj = zlib.compressobj(level=9, wbits=31)
             case "deflate":
                 compressobj = zlib.compressobj(level=9, wbits=15)
+            case _:
+                compressobj = zlib.compressobj(level=9, wbits=31)
+        if compressobj is None:
+            compressobj = zlib.compressobj(level=9, wbits=31)
         self._make_deflate(compressobj)
         return self.Content(
             data=self._deflate_content, encoding=self.compression_type
         )
-
-    pass
 
 
 class HttpDeflateSizeBombTarpit(HttpDeflateTarpit):
@@ -2443,7 +2467,7 @@ class SmtpTarpit(StaticTarpit):
             b"220 [127.0.0.1] ESMTP Sendmail 8.16.1/8.16.1; "
             b"Thu, 01 Sep 1993 00:00:00 +0000\r\n"
         )
-        head_allowlist: tuple[bytes] = (b"EHLO", b"HELO")
+        head_allowlist: tuple[bytes, ...] = (b"EHLO", b"HELO")
         response_failed: bytes = b"502 Error: command not implemented.\r\n"
 
     pass
@@ -2687,12 +2711,14 @@ class TarpitSupervisor:
             stderr=None,
         )
 
+        assert process.stdin is not None
         process.stdin.write(self.generate_worker_conf_bytes())
         await process.stdin.drain()
         process.stdin.close()
         # print("close")
         # await process.communicate()
 
+        assert process.stdout is not None
         while True:
             line = await process.stdout.readline()
             if not line:
@@ -2709,7 +2735,7 @@ class TarpitSupervisor:
         server = JsonRpcUnixServer(socket_path, name="tarpitd_rpc")
 
         @server.register_method("ping")
-        async def ping() -> typing.Union:
+        async def ping() -> dict[str, typing.Any]:
             return {
                 "pong": True,
                 "server": "tarpitd.py",
@@ -2717,7 +2743,7 @@ class TarpitSupervisor:
             }
 
         @server.register_method("system_info")
-        async def system_info() -> typing.Union:
+        async def system_info() -> dict[str, typing.Any]:
             return {
                 "server": "tarpitd.py",
                 "version": __version__,
@@ -2725,7 +2751,7 @@ class TarpitSupervisor:
             }
 
         @server.register_method("event_buffer_info")
-        async def event_buffer_info() -> typing.Union:
+        async def event_buffer_info() -> dict[str, typing.Any]:
             return {
                 "size": self.event_buffer.capacity,
                 "usage": self.event_buffer.size,
@@ -3043,6 +3069,7 @@ def main_cli():
     )
 
     def serve(args):
+        conf: dict = {}
         if args.pattern:
             conf = generate_conf_from_cli(args)
         elif args.config:
