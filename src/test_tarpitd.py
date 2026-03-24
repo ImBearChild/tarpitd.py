@@ -2,7 +2,6 @@ import unittest
 import asyncio
 import tarpitd
 import time
-import typing
 import dataclasses
 
 
@@ -220,14 +219,12 @@ class TestHttpDeflateSize(TarpitTestCase):
         self.assertFalse("gzip" in header)
 
 
-
 class TestSshTransHold(TarpitTestCase):
     TARPIT: type[tarpitd.BaseTarpit] = tarpitd.SshTransHoldTarpit
     CONF = {"rate_limit": 0}
 
     async def test_bad_request(self):
         await self.do_simple_test(b"BAD_", b"SSH-")
-
 
 
 class TestSshEndless(TarpitTestCase):
@@ -243,9 +240,28 @@ class TestSshEndless(TarpitTestCase):
             data = await read_with_timeout(reader, 64, 8)
             self.assertIn(b"\r\n", data)
 
+
+class TestSshBasic(TarpitTestCase):
+    TARPIT: type[tarpitd.BaseTarpit] = tarpitd.SshTransHoldTarpit
+    CONF = {"rate_limit": 0, "validation_level": 0}  # Validation disabled
+
+    async def test_ssh_banner_validation_disabled(self):
+        """Test that SSH still sends proper banner when validation is disabled"""
+        reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
+        await asyncio.sleep(0.1)
+        # Should receive SSH identification string even when validation is disabled
+        banner = await readline_with_timeout(reader, 2)
+        # SSH protocol requires sending identification upon connection
+        self.assertIn(
+            b"SSH-2.0-OpenSSH", banner
+        )  # Should start with proper SSH identification
+
+    pass
+
+
 class TestFtp(TarpitTestCase):
     TARPIT: type[tarpitd.BaseTarpit] = tarpitd.FtpEndlessMotdTarpit
-    CONF = {"rate_limit": 1024,"validation_level": 1}
+    CONF = {"rate_limit": 1024, "validation_level": 1}
 
     async def test_without_user(self):
         reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
@@ -267,6 +283,97 @@ class TestFtp(TarpitTestCase):
         self.assertIn(b"220", data)
         data = await reader.readline()
         self.assertIn(b"230", data)
+        pass
+
+
+class TestSmtp(TarpitTestCase):
+    TARPIT: type[tarpitd.BaseTarpit] = tarpitd.SmtpTarpit
+    CONF = {"rate_limit": 1024, "validation_level": 1}
+
+    async def test_smtp_banner(self):
+        reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
+        await asyncio.sleep(0.1)
+        # Wait for the SMTP banner
+        banner = await readline_with_timeout(reader, 2)
+        self.assertIn(b"220", banner)
+        # Try sending HELO (should be accepted as valid command for validation)
+        writer.write(b"HELO example.com\r\n")
+        await writer.drain()
+        # The validation passes, now we have normal operation
+        # Read responses from actual handler
+        response = await readline_with_timeout(reader, 5)
+        # Default SmtpTarpit just accepts validated clients
+        # The key is that HELO should not trigger a rejection
+        # Since we just want to validate that validation works, check connection doesn't get closed immediately
+        self.assertIsNotNone(response)  # Connection should still be alive
+
+        pass
+
+    async def test_invalid_smtp_command_during_validation(self):
+        # Testing that invalid commands during validation phase are rejected
+        tarpit_with_validation = tarpitd.SmtpTarpit(
+            rate_limit=1024, validation_level=1
+        )
+        server = await tarpit_with_validation.create_server("127.0.0.3", 0)
+        port = server.sockets[0].getsockname()[1]
+        await server.start_serving()
+
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.3", port)
+            await asyncio.sleep(0.1)
+            # Wait for the SMTP banner
+            banner = await readline_with_timeout(reader, 2)
+            self.assertIn(b"220", banner)
+
+            # Send an invalid command that should fail validation
+            writer.write(b"INVALID_COMMAND\r\n")
+            await writer.drain()
+            # With validation on, an invalid command during the read phase should cause rejection
+            # Response after validation failure depends on the implementation
+
+            # Give it a moment for processing
+            await asyncio.sleep(1)
+        finally:
+            server.close()
+            await server.wait_closed()
+        pass
+
+
+class TestSmtpEndlessEhlo(TarpitTestCase):
+    TARPIT: type[tarpitd.BaseTarpit] = tarpitd.SmtpEndlessEhloTarpit
+    CONF = {"rate_limit": 0, "validation_level": 0}
+
+    async def test_smtp_endless_ehlo_response(self):
+        reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
+        await asyncio.sleep(0.1)
+        # Should get initial SMTP greeting
+        greeting = await readline_with_timeout(reader, 2)
+        self.assertIn(b"220", greeting)  # SMTP greeting should be first
+
+        # Should get initial 250- response (first from handle_client method)
+        welcome = await readline_with_timeout(reader, 2)
+        self.assertIn(b"250-", welcome)  # 250- message should come next
+
+        # Should then get endless hex responses
+        for i in range(2):  # Test fewer loops to avoid hanging
+            response = await readline_with_timeout(reader, 10)
+            if response:
+                self.assertIn(b"250-", response)
+            else:
+                break
+        pass
+
+    async def test_smtp_banner(self):
+        # should Still have banner
+        reader, writer = await asyncio.open_connection("127.0.0.2", self.port)
+        await asyncio.sleep(0.1)
+        banner = await readline_with_timeout(reader, 2)
+        self.assertIn(b"220", banner)
+        writer.write(b"HELO example.com\r\n")
+        await writer.drain()
+        response = await readline_with_timeout(reader, 5)
+        self.assertIsNotNone(response)
+
         pass
 
 

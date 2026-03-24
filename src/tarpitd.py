@@ -436,7 +436,6 @@ import typing
 import copy
 import os
 import socket
-import signal
 
 # module for cli use only will be import when needed
 
@@ -1217,13 +1216,6 @@ class TarpitTracer:
         sys.stdout.flush()
         # raise NotImplementedError
 
-    def trace_client_event(self, data):
-        raise NotImplementedError
-        sys.stdout.write(json.dumps(data, cls=BytesLiteralEncoder))
-
-    def trace_worker_event(self, data):
-        raise NotImplementedError
-
     pass
 
 
@@ -1621,7 +1613,7 @@ class StaticTarpit(BaseTarpit):
         response_failed: bytes = b""
 
     class ValidationResult(typing.NamedTuple):
-        expected: bool
+        expected: int  # 0 means failed and connection should close, 1 means good/good, 2 means check is skipped
         data: bytes | None = None
         comment: str | None = None
         pass
@@ -1639,15 +1631,32 @@ class StaticTarpit(BaseTarpit):
     async def _validate_client(self, reader, writer):
         conf = self._validator_config
         await writer.write_and_drain(conf.banner)
+
+        # If validation is disabled on validation-enabled tarpit, skip reading/checking client request
+        if not self._config.validation_level:
+            # Simply send banner but no validation occurs - for compliance when user sets validation_level=0 on supporting tarpits
+            return self.ValidationResult(2, None, "validation disabled")
+
+        # For validation enabled: read and validate client data normally
         data = await read_with_timeout(reader, conf.read_len, conf.timeout)
         for head in conf.head_allowlist:
             if data.startswith(head):
-                return self.ValidationResult(True, data)
+                return self.ValidationResult(1, data)  # 1 means good/valid
         await writer.write_and_drain(conf.response_failed)
-        return self.ValidationResult(False, data)
+        return self.ValidationResult(0, data)  # 0 means failed/disconnect
 
     async def __fake_validate_client(self, reader, writer):
-        return self.ValidationResult(True)  # Data is none means skipped
+        # For scenarios where validation is enabled but not supported by the tarpit
+        # Send banner to maintain protocol compliance, read client data but consider it 'not applicable'
+        await writer.write_and_drain(self._validator_config.banner)
+        data = await read_with_timeout(
+            reader,
+            self._validator_config.read_len,
+            self._validator_config.timeout,
+        )
+        return self.ValidationResult(
+            2, data, "validation not applicable to this tarpit"
+        )  # 2 means validation was turned on but not applicable to this tarpit
 
     async def __handle_valid_client(self, reader, tarpit_writer):
         tarpit_writer.change_rate_limit(self._config.rate_limit)
@@ -1666,14 +1675,26 @@ class StaticTarpit(BaseTarpit):
     async def _handler(self, reader, writer):
         tarpit_writer = typing.cast(TarpitWriter, writer)
         tarpit_reader = typing.cast(TarpitReader, reader)
+
+        # Always call validation (which sends banner and reads initial client request)
         result = await self.__runtime_validate_client(
             tarpit_reader, tarpit_writer
         )
-        if result.expected:
-            if result.data: # result.data == None means skipped
-                self._trace_client(
-                    tarpit_writer, ConnEventEnum.VALIDATE, meta=result._asdict()
-                )
+
+        # Trace the validation result
+        self._trace_client(
+            tarpit_writer, ConnEventEnum.VALIDATE, meta=result._asdict()
+        )
+
+        # All validation results now continue with tarpit behavior for protocol compliance,
+        # but behavior may differ based on validation outcome
+
+        if result.expected == 0:
+            # Validation failed - apply punitive delay, but continue with tarpit behavior
+            await asyncio.sleep(random.randrange(16, 32))
+
+            # Continue the tarpit behavior even after validation failure
+            # This ensures the service keeps the connection in a tarpit-like state for scanners
             tarpit_writer.change_rate_limit(self._config.rate_limit)
             await asyncio.gather(
                 # split read and write. we read and write at the same time.
@@ -1681,11 +1702,19 @@ class StaticTarpit(BaseTarpit):
                 self.__handle_valid_client(tarpit_reader, tarpit_writer),
                 self.__drain_remaining_data(tarpit_reader, tarpit_writer),
             )
-        else:
-            self._trace_client(
-                tarpit_writer, ConnEventEnum.VALIDATE, meta=result._asdict()
+        elif result.expected in (1, 2):
+            # Valid request (1) or validation skipped (2) - continue with normal tarpit operation
+            tarpit_writer.change_rate_limit(self._config.rate_limit)
+
+            # Handle normal tarpit operations
+            await asyncio.gather(
+                # split read and write. we read and write at the same time.
+                # because we cant read after exception is raised.
+                self.__handle_valid_client(tarpit_reader, tarpit_writer),
+                self.__drain_remaining_data(tarpit_reader, tarpit_writer),
             )
-            await asyncio.sleep(random.randrange(16, 32))
+        # Other unexpected codes will continue with the default path as well for robustness
+
         tarpit_writer.close()
         await tarpit_writer.wait_closed()
 
@@ -1699,20 +1728,20 @@ class StaticTarpit(BaseTarpit):
         )
         self.__runtime_validate_client: StaticTarpit.ValidatorCallable
         # setup client_validation
-        if self._config.validation_level:
-            match self._validator_support:
-                case 1:
-                    self.logger.debug("client_validation enabled")
-                    self.__runtime_validate_client = self._validate_client
-                case _:
-                    self.__runtime_validate_client = self.__fake_validate_client
-                    self.logger.warning(
-                        "this tarpit does not support client_validation"
-                    )
-        else:
+        if not self._config.validation_level:
             self.logger.debug("client_validation disabled")
+            # Use main validation method which will bypass validation internally when disabled
+            self.__runtime_validate_client = self._validate_client
+        elif self._validator_support == 1:
+            self.logger.debug("client_validation enabled")
+            # Use main validation method for validation-enabled tarpits
+            self.__runtime_validate_client = self._validate_client
+        else:
+            # Use special method for tarpits that don't support validation
             self.__runtime_validate_client = self.__fake_validate_client
-            pass
+            self.logger.warning(
+                "this tarpit does not support client_validation"
+            )
 
     async def handle_client(self, writer):
         pass
