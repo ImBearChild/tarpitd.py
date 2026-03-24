@@ -20,6 +20,7 @@ Available subcommands:
 
 * `serve` - Start one or more tarpit services
 * `manual` - Display built-in manual pages
+* `ctl` - Control and get information from running supervisor
 
 ## DESCRIPTION
 
@@ -248,6 +249,38 @@ Start tarpit from configuration file:
 
     tarpitd.py serve -c /path/to/config.toml
 
+### Using the `ctl` subcommand
+
+The `ctl` subcommand is used to communicate with a running supervisor process
+via a Unix domain socket.
+
+#### `ctl ping`
+
+Checks if the supervisor is running:
+
+    tarpitd.py ctl ping
+
+This will display:
+- Server name
+- Server version
+- Status (Running)
+
+#### `ctl status`
+
+Shows detailed status information:
+
+    tarpitd.py ctl status
+
+This will display:
+- Server name and version
+- Uptime (time since server started)
+- Event buffer usage (events currently stored / total buffer size)
+
+##### Options
+
+- `-s, --socket PATH` - Specify the Unix domain socket path (default: /tmp/tarpitd.sock)
+  Can also be set via environment variable `TARPITD_SOCKET`.
+
 ## AUTHOR
 
 Nianqing Yao [imbearchild at outlook.com]
@@ -402,6 +435,8 @@ import time
 import typing
 import copy
 import os
+import socket
+import signal
 
 # module for cli use only will be import when needed
 
@@ -441,6 +476,10 @@ class RingBuffer:
 
     def __len__(self):
         return self.size
+
+    def get_usage(self) -> tuple[int, int]:
+        """Return (used, capacity) tuple."""
+        return (self.size, self.capacity)
 
 
 def validate_dataclass_types(instance) -> list:
@@ -543,12 +582,560 @@ def validate_dataclass_types_strict(instance) -> None:
 
 
 ## Fingerprint
-# Like https://github.com/drk1wi/portspoof and 
+# Like https://github.com/drk1wi/portspoof and
 # (https://www.vicarius.io/vsociety/posts/research-evading-portspoof-solution)
-class Fingerprint():
-    def __init__(self, ):
+class Fingerprint:
+    def __init__(
+        self,
+    ):
         pass
+
     pass
+
+
+## JSON-RPC
+
+
+class JsonRpcServer:
+    """
+    JSON-RPC 2.0 server using asyncio and standard library only.
+
+    This class handles JSON-RPC protocol logic only. Transport layer
+    (socket/network) is handled externally - just call handle_request()
+    with incoming JSON data.
+    """
+
+    JSON_RPC_VERSION = "2.0"
+
+    def __init__(self, name: str = "__main__"):
+        self._name = name
+        self._logger = logging.getLogger(f"jsonrpc.server.{name}")
+        self._methods: typing.Dict[
+            str, typing.Callable[..., typing.Awaitable[typing.Any]]
+        ] = {}
+
+    def register_method(self, name: str) -> typing.Callable:
+        """Decorator to register a JSON-RPC method handler."""
+
+        def decorator(
+            func: typing.Callable[..., typing.Awaitable[typing.Any]],
+        ) -> typing.Callable:
+            self._methods[name] = func
+            return func
+
+        return decorator
+
+    async def handle_request(
+        self, data: typing.Union[str, bytes]
+    ) -> typing.Optional[typing.Union[typing.Dict, typing.List[typing.Dict]]]:
+        """
+        Handle incoming JSON-RPC request.
+
+        Args:
+            data: Raw JSON string or bytes from transport layer
+
+        Returns:
+            Response dict/list to send back, or None for notifications
+        """
+        try:
+            request = json.loads(data)
+        except json.JSONDecodeError as e:
+            return self._error_response(None, -32700, f"Parse error: {e}")
+
+        if isinstance(request, list):
+            return await self._handle_batch(request)
+        return await self._handle_single(request)
+
+    async def _handle_single(
+        self, request: typing.Any
+    ) -> typing.Optional[typing.Dict]:
+        """Handle a single JSON-RPC request."""
+        if not self._validate_request(request):
+            return self._error_response(
+                request.get("id") if isinstance(request, dict) else None,
+                -32600,
+                "Invalid Request",
+            )
+
+        method_name = request["method"]
+        params = request.get("params", [])
+        request_id = request.get("id")
+        is_notification = request_id is None
+
+        if method_name not in self._methods:
+            return self._error_response(
+                request_id, -32601, f"Method not found: {method_name}"
+            )
+
+        try:
+            handler = self._methods[method_name]
+            if isinstance(params, dict):
+                result = await handler(**params)
+            else:
+                result = await handler(*params)
+
+            if is_notification:
+                return None
+
+            return self._success_response(request_id, result)
+
+        except Exception as e:
+            return self._error_response(request_id, -32000, str(e))
+
+    async def _handle_batch(
+        self, requests: typing.List[typing.Dict]
+    ) -> typing.Optional[typing.List[typing.Dict]]:
+        """Handle a batch of JSON-RPC requests."""
+        if len(requests) == 0:
+            return None
+
+        responses: typing.List[typing.Dict] = []
+        for request in requests:
+            response = await self._handle_single(request)
+            if response is not None:
+                responses.append(response)
+
+        return responses if responses else None
+
+    def _validate_request(self, request: typing.Any) -> bool:
+        """Validate JSON-RPC 2.0 request structure."""
+        if not isinstance(request, dict):
+            return False
+        if request.get("jsonrpc") != self.JSON_RPC_VERSION:
+            return False
+        if "method" not in request or not isinstance(request["method"], str):
+            return False
+        return True
+
+    def _success_response(
+        self, request_id: typing.Any, result: typing.Any
+    ) -> typing.Dict:
+        """Create a success response."""
+        return {
+            "jsonrpc": self.JSON_RPC_VERSION,
+            "id": request_id,
+            "result": result,
+        }
+
+    def _error_response(
+        self, request_id: typing.Any, code: int, message: str
+    ) -> typing.Dict:
+        """Create an error response."""
+        return {
+            "jsonrpc": self.JSON_RPC_VERSION,
+            "id": request_id,
+            "error": {"code": code, "message": message},
+        }
+
+    def get_method_names(self) -> typing.List[str]:
+        """Return list of registered method names."""
+        return list(self._methods.keys())
+
+
+class JsonRpcUnixServer(JsonRpcServer):
+    """
+    JSON-RPC 2.0 server listening on Unix domain socket.
+
+    Extends JsonRpcServer to handle Unix domain socket transport.
+    """
+
+    def __init__(self, socket_path: str, name: str = "__main__"):
+        super().__init__(name)
+        self._socket_path = socket_path
+        self._server: typing.Optional[asyncio.AbstractServer] = None
+
+    async def start(self) -> None:
+        """Start the Unix domain socket server."""
+        if os.path.exists(self._socket_path):
+            os.remove(self._socket_path)
+
+        self._server = await asyncio.start_unix_server(
+            self._handle_client, path=self._socket_path
+        )
+
+    async def _handle_client(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        """Handle incoming client connection."""
+        try:
+            data = await reader.read(65536)
+            if not data:
+                return
+
+            response = await self.handle_request(data)
+
+            if response is not None:
+                json_response = json.dumps(response)
+                writer.write(json_response.encode("utf-8"))
+                await writer.drain()
+        except asyncio.TimeoutError as e:
+            self._logger.error(
+                "[%s] Timeout receiving request: %s", self._name, e
+            )
+        except OSError as e:
+            self._logger.error(
+                "[%s] Error receiving request: %s", self._name, e
+            )
+        except Exception as e:
+            self._logger.error("[%s] Error handling client: %s", self._name, e)
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    async def stop(self) -> None:
+        """Stop the server and clean up."""
+        if self._server:
+            self._server.close()
+            await self._server.wait_closed()
+
+        if os.path.exists(self._socket_path):
+            os.remove(self._socket_path)
+
+    @property
+    def socket_path(self) -> str:
+        """Return the Unix socket path."""
+        return self._socket_path
+
+
+class JsonRpcClient:
+    """
+    JSON-RPC 2.0 client using standard library only.
+
+    This class handles JSON-RPC protocol logic only. Transport layer
+    (socket/network) is handled externally - use make_request() to get
+    the JSON payload to send, and parse_response() to handle incoming data.
+    """
+
+    JSON_RPC_VERSION = "2.0"
+
+    def __init__(self, name: str = "__main__"):
+        self._name = name
+        self._logger = logging.getLogger(f"jsonrpc.client.{name}")
+        self._pending_requests: typing.Dict[typing.Any, typing.Any] = {}
+        self._id_counter = 0
+
+    def _next_id(self) -> int:
+        self._id_counter += 1
+        return self._id_counter
+
+    def make_request(
+        self,
+        method: str,
+        params: typing.Optional[typing.Union[list, dict]] = None,
+    ) -> str:
+        """
+        Create a JSON-RPC request payload.
+
+        Args:
+            method: Method name to call
+            params: Optional positional (list) or keyword (dict) parameters
+
+        Returns:
+            JSON string to send to server
+        """
+        request_id = self._next_id()
+        request: typing.Dict[str, typing.Any] = {
+            "jsonrpc": self.JSON_RPC_VERSION,
+            "method": method,
+            "id": request_id,
+        }
+        if params is not None:
+            request["params"] = params
+
+        self._pending_requests[request_id] = {
+            "method": method,
+            "params": params,
+        }
+        return json.dumps(request)
+
+    def make_notification(
+        self,
+        method: str,
+        params: typing.Optional[typing.Union[list, dict]] = None,
+    ) -> str:
+        """
+        Create a JSON-RPC notification payload (no response expected).
+
+        Args:
+            method: Method name to call
+            params: Optional positional (list) or keyword (dict) parameters
+
+        Returns:
+            JSON string to send to server
+        """
+        request: typing.Dict[str, typing.Any] = {
+            "jsonrpc": self.JSON_RPC_VERSION,
+            "method": method,
+        }
+        if params is not None:
+            request["params"] = params
+
+        return json.dumps(request)
+
+    def make_batch(
+        self,
+        requests: typing.List[
+            typing.Tuple[str, typing.Optional[typing.Union[list, dict]]]
+        ],
+    ) -> str:
+        """
+        Create a batch JSON-RPC request.
+
+        Args:
+            requests: List of (method, params) tuples
+
+        Returns:
+            JSON string to send to server
+        """
+        batch: typing.List[typing.Dict[str, typing.Any]] = []
+        for method, params in requests:
+            request: typing.Dict[str, typing.Any] = {
+                "jsonrpc": self.JSON_RPC_VERSION,
+                "method": method,
+                "id": self._next_id(),
+            }
+            if params is not None:
+                request["params"] = params
+            batch.append(request)
+
+        for req in batch:
+            if "id" in req:
+                self._pending_requests[req["id"]] = {
+                    "method": req["method"],
+                    "params": req.get("params"),
+                }
+
+        return json.dumps(batch)
+
+    def parse_response(
+        self, data: typing.Union[str, bytes]
+    ) -> typing.Union[typing.Dict, typing.List[typing.Dict], None]:
+        """
+        Parse a JSON-RPC response from the server.
+
+        Args:
+            data: Raw JSON string or bytes from server
+
+        Returns:
+            Parsed response dict/list, or None for parse errors
+
+        Raises:
+            JsonRpcError: If response contains an error
+        """
+        try:
+            response = json.loads(data)
+        except json.JSONDecodeError as e:
+            raise JsonRpcError(-32700, f"Parse error: {e}")
+
+        if isinstance(response, list):
+            results = []
+            for resp in response:
+                parsed = self._parse_single_response(resp)
+                if parsed is not None:
+                    results.append(parsed)
+            return results if results else None
+        else:
+            return self._parse_single_response(response)
+
+    def _parse_single_response(
+        self, response: typing.Any
+    ) -> typing.Optional[typing.Dict]:
+        """Parse a single JSON-RPC response."""
+        if not isinstance(response, dict):
+            raise JsonRpcError(-32600, "Invalid response format")
+
+        if response.get("jsonrpc") != self.JSON_RPC_VERSION:
+            raise JsonRpcError(-32600, "Invalid JSON-RPC version")
+
+        if "error" in response:
+            request_id = response.get("id")
+            if request_id in self._pending_requests:
+                del self._pending_requests[request_id]
+            error = response["error"]
+            raise JsonRpcError(
+                error.get("code", -32000),
+                error.get("message", "Unknown error"),
+                error.get("data"),
+            )
+
+        if "result" not in response:
+            return None
+
+        request_id = response.get("id")
+        if request_id in self._pending_requests:
+            del self._pending_requests[request_id]
+
+        return response
+
+    def get_pending_count(self) -> int:
+        """Return number of pending requests awaiting responses."""
+        return len(self._pending_requests)
+
+    def clear_pending(self) -> None:
+        """Clear all pending requests."""
+        self._pending_requests.clear()
+
+
+class JsonRpcError(Exception):
+    """Exception raised when a JSON-RPC response contains an error."""
+
+    def __init__(
+        self,
+        code: int,
+        message: str,
+        data: typing.Optional[typing.Any] = None,
+    ):
+        self.code = code
+        self.message = message
+        self.data = data
+        super().__init__(f"JSON-RPC Error {code}: {message}")
+
+    def to_dict(self) -> typing.Dict:
+        """Return error as a dict."""
+        error_dict = {"code": self.code, "message": self.message}
+        if self.data is not None:
+            error_dict["data"] = self.data
+        return error_dict
+
+
+class JsonRpcUnixClient(JsonRpcClient):
+    """
+    JSON-RPC 2.0 client connecting via Unix domain socket.
+
+    Extends JsonRpcClient to handle Unix domain socket transport.
+    Connections are created per-request and closed after response.
+    """
+
+    def __init__(self, socket_path: str, name: str = "__main__"):
+        super().__init__(name)
+        self._socket_path = socket_path
+
+    def call(
+        self,
+        method: str,
+        params: typing.Optional[typing.Union[list, dict]] = None,
+    ) -> typing.Any:
+        """
+        Make a JSON-RPC call and return the result.
+        Opens connection, sends request, reads response, closes connection.
+
+        Args:
+            method: Method name to call
+            params: Optional positional (list) or keyword (dict) parameters
+
+        Returns:
+            The result from the server
+        """
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.connect(self._socket_path)
+
+            request = self.make_request(method, params)
+            sock.sendall(request.encode("utf-8"))
+
+            data = sock.recv(65536)
+            response = self.parse_response(data)
+
+            if isinstance(response, dict):
+                return response.get("result")
+            return None
+        except socket.timeout as e:
+            self._logger.error(
+                "[%s] Timeout sending/receiving request: %s", self._name, e
+            )
+            raise
+        except OSError as e:
+            self._logger.error(
+                "[%s] Error sending/receiving request: %s", self._name, e
+            )
+            raise
+        finally:
+            sock.close()
+
+    def notify(
+        self,
+        method: str,
+        params: typing.Optional[typing.Union[list, dict]] = None,
+    ) -> None:
+        """
+        Send a JSON-RPC notification (no response expected).
+        Opens connection, sends notification, closes connection.
+
+        Args:
+            method: Method name to call
+            params: Optional positional (list) or keyword (dict) parameters
+        """
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.connect(self._socket_path)
+
+            notification = self.make_notification(method, params)
+            sock.sendall(notification.encode("utf-8"))
+        except socket.timeout as e:
+            self._logger.error(
+                "[%s] Timeout sending notification: %s", self._name, e
+            )
+            raise
+        except OSError as e:
+            self._logger.error(
+                "[%s] Error sending notification: %s", self._name, e
+            )
+            raise
+        finally:
+            sock.close()
+
+    def call_batch(
+        self,
+        requests: typing.List[
+            typing.Tuple[str, typing.Optional[typing.Union[list, dict]]]
+        ],
+    ) -> typing.List[typing.Dict]:
+        """
+        Make a batch JSON-RPC call.
+        Opens connection, sends batch, reads response, closes connection.
+
+        Args:
+            requests: List of (method, params) tuples
+
+        Returns:
+            List of response dicts
+        """
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.connect(self._socket_path)
+
+            batch = self.make_batch(requests)
+            sock.sendall(batch.encode("utf-8"))
+
+            data = sock.recv(65536)
+            response = self.parse_response(data)
+
+            if isinstance(response, list):
+                return response
+            return []
+        except socket.timeout as e:
+            self._logger.error(
+                "[%s] Timeout sending/receiving batch request: %s",
+                self._name,
+                e,
+            )
+            raise
+        except OSError as e:
+            self._logger.error(
+                "[%s] Error sending/receiving batch request: %s", self._name, e
+            )
+            raise
+        finally:
+            sock.close()
+
+    @property
+    def socket_path(self) -> str:
+        """Return the Unix socket path."""
+        return self._socket_path
+
 
 ## Event dataclasses
 
@@ -2116,8 +2703,110 @@ class TarpitSupervisor:
             ev = _decode_event_from_dict(event_dict)
             await self.handle_worker_stdout(event=ev)
 
+    async def run_rpc_server(self):
+        socket_path = "/tmp/tarpitd.sock"  # TODO: Fix this
+
+        server = JsonRpcUnixServer(socket_path, name="tarpitd_rpc")
+
+        @server.register_method("ping")
+        async def ping() -> typing.Union:
+            return {
+                "pong": True,
+                "server": "tarpitd.py",
+                "version": __version__,
+            }
+
+        @server.register_method("system_info")
+        async def system_info() -> typing.Union:
+            return {
+                "server": "tarpitd.py",
+                "version": __version__,
+                "started_at": self._start_time,
+            }
+
+        @server.register_method("event_buffer_info")
+        async def event_buffer_info() -> typing.Union:
+            return {
+                "size": self.event_buffer.capacity,
+                "usage": self.event_buffer.size,
+            }
+
+        async def shutdown():
+            await server.stop()
+
+        await server.start()
+        logging.info("JSON-RPC starts on: %s", socket_path)
+
+        try:
+            while True:
+                await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            pass
+
     def run(self):
-        asyncio.run(self.run_worker())
+        self._start_time = time.time()
+
+        async def _main():
+            async with asyncio.TaskGroup() as tg:
+                tg.create_task(self.run_worker())
+                tg.create_task(self.run_rpc_server())
+
+        asyncio.run(_main())
+
+
+class TarpitCtl:
+    def __init__(self, socket_path: str = "/tmp/tarpitd.sock"):
+        self.socket_path = socket_path
+        self.client = JsonRpcUnixClient(socket_path, name="tarpitd_ctl")
+
+    def _format_uptime(self, started_at: float) -> str:
+        current_time = time.time()
+        uptime_seconds = current_time - started_at
+        hours = int(uptime_seconds // 3600)
+        minutes = int((uptime_seconds % 3600) // 60)
+        seconds = int(uptime_seconds % 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+    def ping(self) -> None:
+        try:
+            result = self.client.call("ping")
+            if result and result.get("pong") is True:
+                server_name = result.get("server", "unknown")
+                version = result.get("version", "unknown")
+                print(f"Server: {server_name}")
+                print(f"Version: {version}")
+                print("Status: Running")
+            else:
+                print("Error: Unexpected response from server")
+                sys.exit(1)
+        except OSError as e:
+            print(f"Error: Unable to connect to supervisor: {e}")
+            sys.exit(1)
+
+    def status(self) -> None:
+        try:
+            result = self.client.call("system_info")
+            buffer_result = self.client.call("event_buffer_info")
+
+            if not result:
+                print("Error: Unable to get system info")
+                sys.exit(1)
+
+            version = result.get("version", "unknown")
+            started_at = result.get("started_at", 0)
+            uptime = self._format_uptime(started_at)
+
+            buffer_size = buffer_result.get("size", 0) if buffer_result else 0
+            buffer_usage = buffer_result.get("usage", 0) if buffer_result else 0
+
+            print("Server: tarpitd.py")
+            print(f"Version: {version}")
+            print(f"Uptime: {uptime}")
+            print(f"Event Buffer: {buffer_usage}/{buffer_size}")
+
+        except OSError as e:
+            print(f"Error: Unable to connect to supervisor: {e}")
+            sys.exit(1)
 
 
 class TarpitWorker:
@@ -2400,6 +3089,52 @@ def main_cli():
         pass
 
     manual_parser.set_defaults(func=manual)
+
+    ctl_parser = subparsers.add_parser(
+        "ctl",
+        help="control and get information from running supervisor",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=epilog,
+    )
+
+    ctl_parser.add_argument(
+        "-s",
+        "--socket",
+        help="Unix domain socket path (default: /tmp/tarpitd.sock)",
+        metavar="PATH",
+        default=os.environ.get("TARPITD_SOCKET", "/tmp/tarpitd.sock"),
+        action="store",
+    )
+
+    ctl_subparsers = ctl_parser.add_subparsers(
+        help="ctl subcommand", dest="ctl_subparser_name"
+    )
+
+    ctl_ping_parser = ctl_subparsers.add_parser(
+        "ping",
+        help="ping the supervisor to check if it's running",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=epilog,
+    )
+
+    def ctl_ping(args):
+        controller = TarpitCtl(args.socket)
+        controller.ping()
+
+    ctl_ping_parser.set_defaults(func=ctl_ping)
+
+    ctl_status_parser = ctl_subparsers.add_parser(
+        "status",
+        help="show supervisor status",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=epilog,
+    )
+
+    def ctl_status(args):
+        controller = TarpitCtl(args.socket)
+        controller.status()
+
+    ctl_status_parser.set_defaults(func=ctl_status)
 
     args = top_parser.parse_args()
 
