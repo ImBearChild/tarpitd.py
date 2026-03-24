@@ -436,6 +436,7 @@ import typing
 import copy
 import os
 import socket
+import sqlite3
 
 # module for cli use only will be import when needed
 
@@ -479,6 +480,281 @@ class RingBuffer:
     def get_usage(self) -> tuple[int, int]:
         """Return (used, capacity) tuple."""
         return (self.size, self.capacity)
+
+
+class EventStore:
+    """SQLite-based event storage for querying and persistence."""
+
+    def __init__(
+        self,
+        db_path: str = ":memory:",
+        max_size_bytes: int = 8 * 1024 * 1024,  # 8MB default
+        prune_count: int = 256,
+    ):
+        self.db_path = db_path
+        self._is_memory = db_path == ":memory:"
+        self._max_size = max_size_bytes
+        self._prune_count = prune_count
+        self._conn = sqlite3.connect(db_path)
+        self._conn.row_factory = sqlite3.Row
+        self._create_tables()
+
+    def _create_tables(self) -> None:
+        """Initialize database schema."""
+        self._conn.executescript("""
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                ev_type TEXT NOT NULL,
+                tarpit_name TEXT,
+                tarpit_pattern TEXT,
+                peer_ip TEXT,
+                peer_port INTEGER,
+                local_ip TEXT,
+                local_port INTEGER,
+                metadata TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_events_time
+                ON events(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_events_peer_ip
+                ON events(peer_ip);
+            CREATE INDEX IF NOT EXISTS idx_events_tarpit
+                ON events(tarpit_name);
+            CREATE INDEX IF NOT EXISTS idx_events_type
+                ON events(ev_type);
+        """)
+        self._conn.commit()
+
+    def append(self, event) -> None:
+        """Store an event (ConnEvent or WorkerEvent)."""
+        peer_ip, peer_port = None, None
+        local_ip, local_port = None, None
+
+        if hasattr(event, "peername") and event.peername:
+            peer_ip, peer_port = event.peername[0], event.peername[1]
+        if hasattr(event, "sockname") and event.sockname:
+            local_ip, local_port = event.sockname[0], event.sockname[1]
+
+        metadata = None
+        if hasattr(event, "metadata") and event.metadata:
+            metadata = json.dumps(event.metadata)
+
+        self._conn.execute(
+            """
+            INSERT INTO events
+                (timestamp, ev_type, tarpit_name, tarpit_pattern,
+                 peer_ip, peer_port, local_ip, local_port, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event.time,
+                event.ev_type,
+                getattr(event, "tarpit_name", None),
+                getattr(event, "tarpit_pattern", None),
+                peer_ip,
+                peer_port,
+                local_ip,
+                local_port,
+                metadata,
+            ),
+        )
+        self._conn.commit()
+
+        # Check size limit and prune if needed
+        self._prune_if_needed()
+
+    def _prune_if_needed(self) -> None:
+        """Remove oldest events if size exceeds limit."""
+        current_size = self.get_size()
+        if current_size > self._max_size:
+            logging.warning(
+                "Event store size (%d bytes) exceeds limit (%d bytes), "
+                "pruning oldest %d events",
+                current_size,
+                self._max_size,
+                self._prune_count,
+            )
+            # Delete oldest N events
+            self._conn.execute(
+                "DELETE FROM events WHERE id IN ("
+                "SELECT id FROM events ORDER BY id ASC LIMIT ?"
+                ")",
+                (self._prune_count,),
+            )
+            self._conn.commit()
+            # Vacuum to reclaim space
+            self._conn.execute("VACUUM")
+            self._conn.commit()
+            logging.info(
+                "Pruned %d events, new size: %d bytes",
+                self._prune_count,
+                self.get_size(),
+            )
+
+    def query(
+        self,
+        catalog: str = "events",
+        start: int = 1,
+        end: int = 100,
+        peer_ip: str | None = None,
+        tarpit_name: str | None = None,
+        ev_type: str | None = None,
+    ) -> list[dict]:
+        """Query events with filters and range.
+
+        Args:
+            catalog: Table name (currently only 'events')
+            start: Start row (1-indexed, negative for reverse from end)
+            end: End row (1-indexed, negative for reverse from end)
+            peer_ip: Filter by peer IP address
+            tarpit_name: Filter by tarpit name
+            ev_type: Filter by event type
+
+        Returns:
+            List of event dictionaries in requested order
+        """
+        if catalog != "events":
+            raise ValueError(f"Unknown catalog: {catalog}")
+
+        # Build WHERE clause
+        where_clauses = []
+        params = []
+
+        if peer_ip:
+            # Support wildcard patterns (192.168.1.%) and CIDR (192.168.1.0/24)
+            if "/" in peer_ip:
+                # CIDR notation - convert to range (simplified)
+                import ipaddress
+
+                try:
+                    network = ipaddress.ip_network(peer_ip, strict=False)
+                    # For simplicity, use LIKE with the network prefix
+                    # e.g., 192.168.1.0/24 -> peer_ip LIKE '192.168.1.%'
+                    prefix = str(network.network_address)
+                    octets = prefix.split(".")
+                    prefix_len = network.prefixlen
+                    if prefix_len == 8:
+                        pattern = f"{octets[0]}.%"
+                    elif prefix_len == 16:
+                        pattern = f"{octets[0]}.{octets[1]}.%"
+                    elif prefix_len == 24:
+                        pattern = f"{octets[0]}.{octets[1]}.{octets[2]}.%"
+                    else:
+                        # For other prefix lengths, use exact match
+                        # (SQLite doesn't support proper IP range queries)
+                        pattern = prefix.rstrip("0").rstrip(".") + "%"
+                    where_clauses.append("peer_ip LIKE ?")
+                    params.append(pattern)
+                except ValueError:
+                    # Invalid CIDR, fall back to exact match
+                    where_clauses.append("peer_ip = ?")
+                    params.append(peer_ip)
+            elif (
+                "*" in peer_ip
+                or "?" in peer_ip
+                or "%" in peer_ip
+                or "_" in peer_ip
+            ):
+                # Wildcard pattern - convert * and ? to SQL wildcards (% and _)
+                pattern = peer_ip.replace("*", "%").replace("?", "_")
+                where_clauses.append("peer_ip LIKE ?")
+                params.append(pattern)
+            else:
+                # Exact match
+                where_clauses.append("peer_ip = ?")
+                params.append(peer_ip)
+        if tarpit_name:
+            where_clauses.append("tarpit_name = ?")
+            params.append(tarpit_name)
+        if ev_type:
+            where_clauses.append("ev_type = ?")
+            params.append(ev_type)
+
+        where_sql = ""
+        if where_clauses:
+            where_sql = "WHERE " + " AND ".join(where_clauses)
+
+        # Determine ordering based on range direction
+        if start < 0 or end < 0:
+            # Using negative indices - need to determine total count first
+            cursor = self._conn.execute(
+                f"SELECT COUNT(*) FROM events {where_sql}", params
+            )
+            total = cursor.fetchone()[0]
+
+            # Convert negative indices
+            start_idx = total + start + 1 if start < 0 else start
+            end_idx = total + end + 1 if end < 0 else end
+        else:
+            start_idx, end_idx = start, end
+
+        # Determine direction and calculate offset/limit
+        if start_idx <= end_idx:
+            # Forward order: ASC
+            order = "ASC"
+            limit = end_idx - start_idx + 1
+            offset = start_idx - 1
+        else:
+            # Reverse order: DESC
+            order = "DESC"
+            limit = start_idx - end_idx + 1
+            # For DESC order, offset needs to skip from the end
+            # First get total to calculate proper offset
+            cursor = self._conn.execute(
+                f"SELECT COUNT(*) FROM events {where_sql}",
+                params[: len(params)],
+            )
+            total = cursor.fetchone()[0]
+            offset = total - start_idx
+
+        query = f"""
+            SELECT * FROM events
+            {where_sql}
+            ORDER BY id {order}
+            LIMIT ? OFFSET ?
+        """
+        params.extend([limit, max(0, offset)])
+
+        cursor = self._conn.execute(query, params)
+        rows = cursor.fetchall()
+
+        # Convert rows to dicts
+        result = []
+        for row in rows:
+            d = dict(row)
+            if d["metadata"]:
+                d["metadata"] = json.loads(d["metadata"])
+            result.append(d)
+
+        return result
+
+    def get_count(self, catalog: str = "events") -> int:
+        """Return total number of events in catalog."""
+        if catalog != "events":
+            raise ValueError(f"Unknown catalog: {catalog}")
+        cursor = self._conn.execute("SELECT COUNT(*) FROM events")
+        return cursor.fetchone()[0]
+
+    def get_size(self) -> int:
+        """Return database size in bytes."""
+        cursor = self._conn.execute(
+            "SELECT page_count * page_size "
+            "FROM pragma_page_count(), pragma_page_size()"
+        )
+        result = cursor.fetchone()
+        return result[0] if result else 0
+
+    def get_backend(self) -> str:
+        """Return storage backend type ('memory' or 'disk')."""
+        return "memory" if self._is_memory else "disk"
+
+    def get_max_size(self) -> int:
+        """Return maximum size limit in bytes."""
+        return self._max_size
+
+    def close(self) -> None:
+        """Close database connection."""
+        self._conn.close()
 
 
 def validate_dataclass_types(instance) -> list:
@@ -2698,7 +2974,7 @@ class TarpitSupervisor:
         TarpitWorker.setup_main_logger(
             level, fmt, get_log_handler(self.orig_config["logging"]["file"])
         )
-        self.event_buffer = RingBuffer(128)
+        self.event_store = EventStore()
 
     def generate_worker_conf_bytes(self) -> bytes:
         worker_conf: dict = {}
@@ -2722,7 +2998,7 @@ class TarpitSupervisor:
 
     async def handle_worker_stdout(self, event):
         logging.debug(event)
-        self.event_buffer.append(event)
+        self.event_store.append(event)
         pass
 
     async def run_worker(self):
@@ -2782,9 +3058,43 @@ class TarpitSupervisor:
         @server.register_method("event_buffer_info")
         async def event_buffer_info() -> dict[str, typing.Any]:
             return {
-                "size": self.event_buffer.capacity,
-                "usage": self.event_buffer.size,
+                "size": "unlimited",
+                "usage": self.event_store.get_count(),
+                "storage_bytes": self.event_store.get_size(),
+                "max_size_bytes": self.event_store.get_max_size(),
+                "backend": self.event_store.get_backend(),
             }
+
+        @server.register_method("query_events")
+        async def query_events(
+            catalog: str = "events",
+            start: int = 1,
+            end: int = 100,
+            peer_ip: str | None = None,
+            tarpit_name: str | None = None,
+            ev_type: str | None = None,
+        ) -> list[dict[str, typing.Any]]:
+            """Query events from the event store.
+
+            Args:
+                catalog: Catalog name (currently only 'events')
+                start: Start index (1-indexed, negative for reverse)
+                end: End index (1-indexed, negative for reverse)
+                peer_ip: Filter by peer IP address
+                tarpit_name: Filter by tarpit name
+                ev_type: Filter by event type
+
+            Returns:
+                List of event dictionaries
+            """
+            return self.event_store.query(
+                catalog=catalog,
+                start=start,
+                end=end,
+                peer_ip=peer_ip,
+                tarpit_name=tarpit_name,
+                ev_type=ev_type,
+            )
 
         async def shutdown():
             await server.stop()
@@ -2851,17 +3161,128 @@ class TarpitCtl:
             started_at = result.get("started_at", 0)
             uptime = self._format_uptime(started_at)
 
-            buffer_size = buffer_result.get("size", 0) if buffer_result else 0
             buffer_usage = buffer_result.get("usage", 0) if buffer_result else 0
+            storage_bytes = (
+                buffer_result.get("storage_bytes", 0) if buffer_result else 0
+            )
+            max_size_bytes = (
+                buffer_result.get("max_size_bytes", 0) if buffer_result else 0
+            )
+            backend = (
+                buffer_result.get("backend", "unknown")
+                if buffer_result
+                else "unknown"
+            )
+
+            # Format current size
+            if storage_bytes < 1024:
+                cur_size_str = f"{storage_bytes}B"
+            elif storage_bytes < 1024 * 1024:
+                cur_size_str = f"{storage_bytes / 1024:.0f}KB"
+            else:
+                cur_size_str = f"{storage_bytes / (1024 * 1024):.1f}MB"
+
+            # Format max size
+            if max_size_bytes < 1024:
+                max_size_str = f"{max_size_bytes}B"
+            elif max_size_bytes < 1024 * 1024:
+                max_size_str = f"{max_size_bytes / 1024:.0f}KB"
+            else:
+                max_size_str = f"{max_size_bytes / (1024 * 1024):.1f}MB"
+
+            # Calculate estimated max entries
+            estimated_max = "unknown"
+            if buffer_usage > 0 and storage_bytes > 0:
+                avg_size = storage_bytes / buffer_usage
+                est_max = int(max_size_bytes / avg_size)
+                estimated_max = f"{est_max} est"
 
             print("Server: tarpitd.py")
             print(f"Version: {version}")
             print(f"Uptime: {uptime}")
-            print(f"Event Buffer: {buffer_usage}/{buffer_size}")
+            print(
+                f"Event Buffer [{backend}]: {cur_size_str}/{max_size_str} "
+                f"({buffer_usage}/{estimated_max})"
+            )
 
         except OSError as e:
             print(f"Error: Unable to connect to supervisor: {e}")
             sys.exit(1)
+
+    def logs(
+        self,
+        catalog: str,
+        start: int,
+        end: int,
+        peer_ip: str | None,
+        tarpit_name: str | None,
+        ev_type: str | None,
+        format: str,
+    ) -> None:
+        """Query and display events from the event store.
+
+        Args:
+            catalog: Catalog name (currently only 'events')
+            start: Start index (1-indexed, negative for reverse)
+            end: End index (1-indexed, negative for reverse)
+            peer_ip: Filter by peer IP address
+            tarpit_name: Filter by tarpit name
+            ev_type: Filter by event type
+            format: Output format ('cli' or 'jsonl')
+        """
+        try:
+            events = self.client.call(
+                "query_events",
+                {
+                    "catalog": catalog,
+                    "start": start,
+                    "end": end,
+                    "peer_ip": peer_ip,
+                    "tarpit_name": tarpit_name,
+                    "ev_type": ev_type,
+                },
+            )
+
+            if events is None:
+                print("Error: Unable to query events")
+                sys.exit(1)
+
+            if format == "jsonl":
+                for event in events:
+                    print(json.dumps(event, cls=BytesLiteralEncoder))
+            else:
+                # CLI format - human readable
+                for event in events:
+                    self._print_event_cli(event)
+
+        except OSError as e:
+            print(f"Error: Unable to connect to supervisor: {e}")
+            sys.exit(1)
+
+    def _print_event_cli(self, event: dict) -> None:
+        """Print a single event in human-readable CLI format."""
+        # Format timestamp: 2026-01-01 12:00:00.099
+        timestamp = event.get("timestamp", 0)
+        dt = time.localtime(timestamp)
+        time_str = time.strftime("%Y-%m-%d %H:%M:%S", dt)
+        # Add milliseconds
+        ms = int((timestamp % 1) * 1000)
+        time_str = f"{time_str}.{ms:03d}"
+
+        ev_type = event.get("ev_type", "unknown")
+        tarpit = event.get("tarpit_name", "-")
+        pattern = event.get("tarpit_pattern", "-")
+        peer_ip = event.get("peer_ip", "-")
+        peer_port = event.get("peer_port", "-")
+
+        print(f"[{time_str}] {ev_type}")
+        print(f"  Tarpit: {tarpit} ({pattern})")
+        print(f"  Peer: {peer_ip}:{peer_port}")
+
+        metadata = event.get("metadata")
+        if metadata:
+            print(f"  Metadata: {metadata}")
+        print()
 
 
 class TarpitWorker:
@@ -3191,6 +3612,89 @@ def main_cli():
         controller.status()
 
     ctl_status_parser.set_defaults(func=ctl_status)
+
+    ctl_logs_parser = ctl_subparsers.add_parser(
+        "logs",
+        help="query and display event logs",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=epilog,
+    )
+
+    ctl_logs_parser.add_argument(
+        "-r",
+        "--range",
+        metavar="START,END",
+        help="Range of events to display (1-indexed, negative for reverse). "
+        "Example: --range=1,5 (first 5 events), --range=-1,-5 (last 5 events)",
+        default="1,100",
+    )
+
+    ctl_logs_parser.add_argument(
+        "-c",
+        "--catalog",
+        metavar="CATALOG",
+        help="Catalog to query (currently only 'events')",
+        default="events",
+        choices=["events"],
+    )
+
+    ctl_logs_parser.add_argument(
+        "-f",
+        "--format",
+        metavar="FORMAT",
+        help="Output format: 'cli' (human-readable) or 'jsonl' (JSON lines)",
+        default="cli",
+        choices=["cli", "jsonl"],
+    )
+
+    ctl_logs_parser.add_argument(
+        "--peer-ip",
+        metavar="IP",
+        help="Filter by peer IP address. Supports exact match (192.168.1.1), "
+        "wildcard (192.168.1.*), or CIDR (192.168.1.0/24)",
+        default=None,
+    )
+
+    ctl_logs_parser.add_argument(
+        "--tarpit",
+        metavar="NAME",
+        help="Filter by tarpit name",
+        default=None,
+    )
+
+    ctl_logs_parser.add_argument(
+        "--type",
+        metavar="TYPE",
+        help="Filter by event type (e.g., 'conn_open', 'conn_close')",
+        default=None,
+    )
+
+    def ctl_logs(args):
+        controller = TarpitCtl(args.socket)
+
+        # Parse range
+        try:
+            range_parts = args.range.split(",")
+            if len(range_parts) != 2:
+                raise ValueError("Range must be START,END")
+            start = int(range_parts[0])
+            end = int(range_parts[1])
+        except (ValueError, IndexError) as e:
+            print(f"Error: Invalid range format '{args.range}': {e}")
+            print("Range must be in format: START,END (e.g., 1,100 or -1,-10)")
+            sys.exit(1)
+
+        controller.logs(
+            catalog=args.catalog,
+            start=start,
+            end=end,
+            peer_ip=args.peer_ip,
+            tarpit_name=args.tarpit,
+            ev_type=args.type,
+            format=args.format,
+        )
+
+    ctl_logs_parser.set_defaults(func=ctl_logs)
 
     args = top_parser.parse_args()
 

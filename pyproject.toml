@@ -42,6 +42,7 @@ requires = ["hatch-mkdocs"]
 path = "mkdocs.yml"
 
 [tool.hatch.envs.dev]
+dev-mode = true
 dependencies = ["pytype", "yappi", "py-spy","mypy"]
 python = "3.11"
 
