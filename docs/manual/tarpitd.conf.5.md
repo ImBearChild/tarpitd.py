@@ -18,13 +18,15 @@ For reference in log output. Has no effect on behavior.
 
 Specifies the tarpit pattern.
 
-The name of the pattern is case-insensitive. For a complete list of supported patterns, see [tarpit.py(1)](./tarpitd.py.1.md).
+The name of the pattern is case-insensitive. For a complete list of supported
+patterns, see [tarpit.py(1)](./tarpitd.py.1.md).
 
 #### `bind=` (table)
 
 A list of addresses and ports to listen on.
 
-Every item in this list should contain `host` and `port` values; see the example below.
+Every item in this list should contain `host` and `port` values; see the
+example below.
 
 #### `rate_limit=` (int)
 
@@ -34,11 +36,12 @@ Follows the same rule as [tarpit.py(1)](./tarpitd.py.1.md).
 
 #### `max_clients=` (int)
 
-The maximum number of clients the server will handle. This is calculated per bind port.
+The maximum number of clients the server will handle. This is calculated per
+bind port.
 
 #### `client_validation=` (bool)
 
-Validate the client before sending a response. 
+Validate the client before sending a response.
 
 #### `trace=` (int or str)
 
@@ -56,22 +59,23 @@ Client validation result is logged with access log.
 
 #### `main=` (str)
 
-Path to the main log file. Special value `<stdout>` and `<stderr>` is supported.
+Path to the main log file. Special value `<stdout>` and `<stderr>` is
+supported.
 
 Default is `<stderr>`.
 
 #### `level=` (str)
 
-Log level. 
+Log level.
 
 Accept: `debug`, `info`, `warning`, `error`, `critical`. Default is `warning`.
 
 #### `trace=` (str)
 
-Path to the trace log file. Special value `<stdout>` and `<stderr>` is supported.
+Path to the trace log file. Special value `<stdout>` and `<stderr>` is
+supported.
 
 Default is `<stdout>`.
-
 
 ## Example
 
@@ -108,6 +112,6 @@ Nianqing Yao [imbearchild at outlook.com]
 ------
 
 > This program was made on the lands of
-  the Aminoac people of the Amacinoas Nation. 
-  We pay our respects to their Elders, past and present. 
+  the Aminoac people of the Amacinoas Nation.
+  We pay our respects to their Elders, past and present.
   Sovereignty was never ceded.

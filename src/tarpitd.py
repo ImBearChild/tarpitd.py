@@ -149,6 +149,14 @@ implementation sends a compressed 1 MB file that decompresses to approximately
 Note: The deflate compression algorithm has its maximum compression rate limit
 at 1030.3:1.
 
+#### http_fake_auth
+
+Tested with: curl
+
+Responds with HTTP 401 Unauthorized status and a `WWW-Authenticate` header
+requesting Basic authentication. Clients may retry with credentials, but the
+server will always reject them, potentially causing automated tools to loop.
+
 ### SSH
 
 #### endlessh
@@ -176,6 +184,26 @@ the standard, the continual stream keeps the connection open indefinitely.
 Note: The implementation advertises itself as OpenSSH 8.9 on Ubuntu and
 replays a pre-recorded SSH key exchange. Future updates may alter aspects of
 this behavior.
+
+### FTP
+
+#### ftp_endless_motd
+
+Tested with: curl
+
+Sends an endless stream of FTP message-of-the-day (MOTD) lines after a
+successful login response. FTP clients will continue to wait for the
+complete message, keeping the connection open indefinitely.
+
+### SMTP
+
+#### smtp_endless_ehlo
+
+Tested with: curl
+
+Responds to the client's EHLO/HELO command with an endless stream of
+ESMTP capability lines. SMTP clients will wait for the complete list
+of server capabilities, effectively keeping the connection stuck.
 
 ### TLS
 
@@ -280,6 +308,23 @@ This will display:
 
 - `-s, --socket PATH` - Specify the Unix domain socket path (default: /tmp/tarpitd.sock)
   Can also be set via environment variable `TARPITD_SOCKET`.
+
+#### `ctl logs`
+
+Query and display event logs from the supervisor.
+
+    tarpitd.py ctl logs [-r RANGE] [-c CATALOG] [-f FORMAT]
+                        [--peer-ip IP] [--tarpit NAME] [--type TYPE]
+
+##### Options
+
+- `-r, --range START,END` - Range of events to display (1-indexed, negative for reverse).
+  Examples: `-r 1,5` (first 5 events), `-r -1,-5` (last 5 events). Default: `1,100`
+- `-c, --catalog CATALOG` - Catalog to query (currently only 'events'). Default: `events`
+- `-f, --format FORMAT` - Output format: 'cli' (human-readable) or 'jsonl'. Default: `cli`
+- `--peer-ip IP` - Filter by peer IP address. Supports exact match, wildcard (e.g., `192.168.1.*`), or CIDR (e.g., `192.168.1.0/24`)
+- `--tarpit NAME` - Filter by tarpit name
+- `--type TYPE` - Filter by event type (e.g., `conn_open`, `conn_close`)
 
 ## AUTHOR
 
