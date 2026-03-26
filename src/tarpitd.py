@@ -463,7 +463,6 @@ Nianqing Yao [imbearchild at outlook.com]
 """
 # =============================================================================
 
-
 __version__ = "0.1.0"
 
 # ruff: noqa: E402
@@ -482,6 +481,8 @@ import copy
 import os
 import socket
 import sqlite3
+import platform
+import gc
 
 # module for cli use only will be import when needed
 
@@ -1853,7 +1854,7 @@ class BaseTarpit:
                 )
             except asyncio.exceptions.CancelledError:
                 self.logger.debug("task cancelled")
-            except OSError as e:  # type: ignore
+            except OSError as e:  
                 if hasattr(e, "winerror") and getattr(e, "winerror") == 121:
                     self._trace_client(
                         writer,
@@ -3020,6 +3021,68 @@ class TarpitSupervisor:
             level, fmt, get_log_handler(self.orig_config["logging"]["file"])
         )
         self.event_store = EventStore()
+        self._worker_process: asyncio.subprocess.Process | None = None
+        self._start_time: float = 0.0
+
+    @staticmethod
+    async def _get_process_stats(
+        pid: int,
+    ) -> dict[str, typing.Any] | None:
+        """Get process stats using ps command (BSD/Linux universal)."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ps",
+                "-p",
+                str(pid),
+                "-o",
+                "rss=,etime=",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+
+            if proc.returncode != 0:
+                return None
+
+            line = stdout.decode("utf-8").strip()
+            if not line:
+                return None
+
+            parts = line.split()
+            if len(parts) < 2:
+                return None
+
+            # Parse memory (KB)
+            memory_kb = int(parts[0])
+
+            # Parse elapsed time (format: [[dd-]hh:]mm:ss or seconds)
+            etime_str = parts[1]
+            cpu_seconds = 0
+
+            if "-" in etime_str:
+                # Format: dd-hh:mm:ss
+                days_part, time_part = etime_str.split("-")
+                cpu_seconds += int(days_part) * 86400
+                etime_str = time_part
+
+            time_parts = etime_str.split(":")
+            if len(time_parts) == 3:  # hh:mm:ss
+                cpu_seconds += (
+                    int(time_parts[0]) * 3600
+                    + int(time_parts[1]) * 60
+                    + int(time_parts[2])
+                )
+            elif len(time_parts) == 2:  # mm:ss
+                cpu_seconds += int(time_parts[0]) * 60 + int(time_parts[1])
+            else:  # ss
+                cpu_seconds += int(time_parts[0])
+
+            return {
+                "memory_kb": memory_kb,
+                "cpu_seconds": cpu_seconds,
+            }
+        except Exception:
+            return None
 
     def generate_worker_conf_bytes(self) -> bytes:
         worker_conf: dict = {}
@@ -3047,7 +3110,7 @@ class TarpitSupervisor:
         pass
 
     async def run_worker(self):
-        process = await asyncio.create_subprocess_exec(
+        self._worker_process = await asyncio.create_subprocess_exec(
             sys.executable,
             __file__,
             "serve",
@@ -3061,20 +3124,17 @@ class TarpitSupervisor:
             stderr=None,
         )
 
-        assert process.stdin is not None
-        process.stdin.write(self.generate_worker_conf_bytes())
-        await process.stdin.drain()
-        process.stdin.close()
-        # print("close")
-        # await process.communicate()
+        assert self._worker_process.stdin is not None
+        self._worker_process.stdin.write(self.generate_worker_conf_bytes())
+        await self._worker_process.stdin.drain()
+        self._worker_process.stdin.close()
 
-        assert process.stdout is not None
+        assert self._worker_process.stdout is not None
         while True:
-            line = await process.stdout.readline()
+            line = await self._worker_process.stdout.readline()
             if not line:
                 break
             line = str(line, encoding="utf8")
-            # logging.debug(line)
             event_dict = json.loads(line)
             ev = _decode_event_from_dict(event_dict)
             await self.handle_worker_stdout(event=ev)
@@ -3098,6 +3158,43 @@ class TarpitSupervisor:
                 "server": "tarpitd.py",
                 "version": __version__,
                 "started_at": self._start_time,
+                "platform": {
+                    "os": os.name,
+                    "system": platform.system(),
+                    "release": platform.release(),
+                    "machine": platform.machine(),
+                    "python_version": platform.python_version(),
+                    "python_implementation": platform.python_implementation(),
+                },
+            }
+
+        @server.register_method("worker_stats")
+        async def worker_stats() -> dict[str, typing.Any]:
+            """Get worker process statistics."""
+            if self._worker_process is None or self._worker_process.pid is None:
+                return {
+                    "status": "not_running",
+                    "pid": None,
+                    "memory_kb": None,
+                    "cpu_seconds": None,
+                }
+
+            pid = self._worker_process.pid
+            stats = await TarpitSupervisor._get_process_stats(pid)
+
+            if stats is None:
+                return {
+                    "status": "unknown",
+                    "pid": pid,
+                    "memory_kb": None,
+                    "cpu_seconds": None,
+                }
+
+            return {
+                "status": "running",
+                "pid": pid,
+                "memory_kb": stats["memory_kb"],
+                "cpu_seconds": stats["cpu_seconds"],
             }
 
         @server.register_method("event_buffer_info")
@@ -3155,6 +3252,7 @@ class TarpitSupervisor:
 
     def run(self):
         self._start_time = time.time()
+        gc.collect()
 
         async def _main():
             async with asyncio.TaskGroup() as tg:
@@ -3197,6 +3295,7 @@ class TarpitCtl:
         try:
             result = self.client.call("system_info")
             buffer_result = self.client.call("event_buffer_info")
+            worker_result = self.client.call("worker_stats")
 
             if not result:
                 print("Error: Unable to get system info")
@@ -3249,6 +3348,44 @@ class TarpitCtl:
                 f"Event Buffer [{backend}]: {cur_size_str}/{max_size_str} "
                 f"({buffer_usage}/{estimated_max})"
             )
+
+            # Display platform info
+            platform_info = result.get("platform", {})
+            if platform_info:
+                system = platform_info.get("system", "unknown")
+                release = platform_info.get("release", "unknown")
+                machine = platform_info.get("machine", "unknown")
+                py_version = platform_info.get("python_version", "unknown")
+                py_impl = platform_info.get("python_implementation", "unknown")
+                print(
+                    f"Platform: {system} ({release} - {machine}), "
+                    f"Python {py_version} ({py_impl})"
+                )
+
+            # Display worker stats
+            if worker_result:
+                worker_status = worker_result.get("status", "unknown")
+                worker_pid = worker_result.get("pid")
+                worker_memory = worker_result.get("memory_kb")
+                worker_cpu = worker_result.get("cpu_seconds")
+
+                if worker_status == "running" and worker_pid:
+                    memory_str = (
+                        f"{worker_memory}KB" if worker_memory else "N/A"
+                    )
+                    cpu_str = (
+                        self._format_uptime(time.time() - worker_cpu)
+                        if worker_cpu
+                        else "N/A"
+                    )
+                    print(
+                        f"Worker: pid={worker_pid}, mem={memory_str}, "
+                        f"uptime={cpu_str}"
+                    )
+                elif worker_status == "not_running":
+                    print("Worker: not running")
+                else:
+                    print(f"Worker: {worker_status}")
 
         except OSError as e:
             print(f"Error: Unable to connect to supervisor: {e}")
@@ -3359,7 +3496,6 @@ class TarpitWorker:
                     alias,
                     c.PATTERN_NAME,
                 )
-
         pass
 
     async def async_run_server(self):
@@ -3375,6 +3511,7 @@ class TarpitWorker:
                         logging.error("failed to run server. err: `%s`", e)
                 # TODO: config Tracer here
                 clean_privilege()
+                gc.collect()
         except asyncio.CancelledError:
             logging.warning(
                 "`async_run_server` task cancelled. shutting down worker."
@@ -3564,6 +3701,7 @@ def main_cli():
     )
 
     def serve(args):
+        global _MANUAL_TARPITD_PY_1,_MANUAL_TARPITD_CONF_5
         conf: dict = {}
         if args.pattern:
             conf = generate_conf_from_cli(args)
@@ -3583,6 +3721,7 @@ def main_cli():
             serve_parser.parse_args(["--help"])
             exit()
         if args.standalone:
+            del _MANUAL_TARPITD_PY_1,_MANUAL_TARPITD_CONF_5
             worker = TarpitWorker(conf)
             worker.run()
         else:
