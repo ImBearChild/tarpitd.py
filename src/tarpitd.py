@@ -498,36 +498,6 @@ class BytesLiteralEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, o)
 
 
-class RingBuffer:
-    def __init__(self, capacity):
-        self.capacity = capacity
-        self.buffer = [None] * capacity
-        self.head = 0
-        self.size = 0
-
-    def append(self, item):
-        self.buffer[self.head] = item
-        self.head = (self.head + 1) % self.capacity
-        if self.size < self.capacity:
-            self.size += 1
-
-    def get(self, index):
-        if index < 0 or index >= self.size:
-            raise IndexError("index out of range")
-        return self.buffer[index]
-
-    def __iter__(self):
-        for i in range(self.size):
-            yield self.buffer[i]
-
-    def __len__(self):
-        return self.size
-
-    def get_usage(self) -> tuple[int, int]:
-        """Return (used, capacity) tuple."""
-        return (self.size, self.capacity)
-
-
 class EventStore:
     """SQLite-based event storage for querying and persistence."""
 
@@ -910,8 +880,6 @@ class Fingerprint:
         self,
     ):
         pass
-
-    pass
 
 
 ## JSON-RPC
@@ -1472,7 +1440,6 @@ class ConnEventEnum(enum.StrEnum):
     ERROR = "conn_error"
     CLOSE = "conn_close"
     VALIDATE = "conn_validate"
-    pass
 
 
 @dataclasses.dataclass
@@ -1489,7 +1456,6 @@ class WorkerEventEnum(enum.StrEnum):
     READY = "worker_ready"
     TARPIT_INIT = "worker_tarpit_init"
     TARPIT_READY = "worker_tarpit_ready"
-    pass
 
 
 @dataclasses.dataclass
@@ -1537,8 +1503,6 @@ class TarpitTracer:
         )
         sys.stdout.flush()
         # raise NotImplementedError
-
-    pass
 
 
 _tracer = TarpitTracer()
@@ -1667,7 +1631,6 @@ class TarpitReader:
                 )
             except Exception:
                 pass
-        pass
 
     def dump_data(self):
         if self._recording_len:
@@ -1686,8 +1649,6 @@ class TarpitReader:
         self.__reader = reader
         self.__buffer = bytearray()
         self._recording_len: int = recording_len  # Zero is disable.
-
-    pass
 
 
 async def read_with_timeout(
@@ -1796,7 +1757,6 @@ class BaseTarpit:
 
         if hasattr(super(), "_setup"):
             super()._setup()  # type: ignore
-            pass
 
         return
 
@@ -1944,7 +1904,6 @@ class StaticTarpit(BaseTarpit):
         expected: int  # 0 means failed and connection should close, 1 means good/good, 2 means check is skipped
         data: bytes | None = None
         comment: str | None = None
-        pass
 
     ValidatorCallable = typing.Callable[
         [TarpitReader, TarpitWriter],
@@ -2067,7 +2026,7 @@ class StaticTarpit(BaseTarpit):
         pass
 
 
-class DynmanicTarpit(BaseTarpit):
+class DynamicTarpit(BaseTarpit):
     async def _handler(self, reader, writer):
         tarpit_writer = typing.cast(TarpitWriter, writer)
         tarpit_reader = typing.cast(TarpitReader, reader)
@@ -2085,10 +2044,8 @@ class DynmanicTarpit(BaseTarpit):
                 "this tarpit does not support client_validation"
             )
 
-    pass
 
-
-class EchoTarpit(DynmanicTarpit):
+class EchoTarpit(DynamicTarpit):
     PATTERN_NAME: str = "_internal_echo"
 
     async def handle_client(self, reader, writer: TarpitWriter):
@@ -2187,11 +2144,9 @@ class HttpTarpit(StaticTarpit):
             # 3xx (Redirection), and 4xx (Client Error) responses,
             # and MAY generate a Date header
             # field in 1xx (Informational) and 5xx (Server Error) responses.
-            pass
 
         async def send_header(self, keyword: bytes, value: bytes):
             await self.writer.write_and_drain(b"%s: %s\r\n" % (keyword, value))
-            pass
 
         async def end_headers(self):
             await self.writer.write_and_drain(b"\r\n")
@@ -2214,7 +2169,6 @@ class HttpTarpit(StaticTarpit):
                 await self.send_header(b"Content-Encoding", encoding)
             await self.end_headers()
             await self.send_raw(content)
-            pass
 
         def __init__(self, writer: TarpitWriter) -> None:
             self.writer = writer
@@ -2224,9 +2178,6 @@ class HttpTarpit(StaticTarpit):
                 typing.Callable[[bytes | bytearray], typing.Awaitable[None]],
                 writer.write_and_drain,
             )
-            pass
-
-        pass
 
     async def _http_handler(self, connection: Connection):
         pass
@@ -2234,9 +2185,6 @@ class HttpTarpit(StaticTarpit):
     async def handle_client(self, writer: TarpitWriter):
         conn: HttpTarpit.Connection = HttpTarpit.Connection(writer)
         await self._http_handler(conn)
-        pass
-
-    pass
 
 
 class HttpOkTarpit(HttpTarpit):
@@ -2279,13 +2227,11 @@ class HttpPreGeneratedTarpit(HttpTarpit):
     @dataclasses.dataclass
     class RuntimeConfig(HttpTarpit.RuntimeConfig):
         rate_limit: int = 128
-        pass
 
     class Content(typing.NamedTuple):
         data: bytes | bytearray
         type_: str = ""
         encoding: str = ""
-        pass
 
     async def _http_handler(self, connection: HttpTarpit.Connection):
         await connection.send_status_line(200)
@@ -2304,8 +2250,6 @@ class HttpPreGeneratedTarpit(HttpTarpit):
         Subclass should overload this method
         """
         raise NotImplementedError
-
-    pass
 
 
 class HttpBadHtmlTarpit(HttpPreGeneratedTarpit):
@@ -2377,15 +2321,12 @@ class HttpBadHtmlTarpit(HttpPreGeneratedTarpit):
         self.logger.debug("generated bad html %i kb", len(data) / 1024)
         return self.Content(data)
 
-    pass
-
 
 class HttpDeflateTarpit(HttpPreGeneratedTarpit):
     @dataclasses.dataclass
     class RuntimeConfig(HttpPreGeneratedTarpit.RuntimeConfig):
         rate_limit: int = 16
         compression_type: str = "gzip"
-        pass
 
     def _make_deflate(self, compressobj):
         raise NotImplementedError
@@ -2417,7 +2358,6 @@ class HttpDeflateSizeBombTarpit(HttpDeflateTarpit):
     class RuntimeConfig(HttpDeflateTarpit.RuntimeConfig):
         rate_limit: int = 16
         compression_type: str = "deflate"
-        pass
 
     def _make_deflate(self, compressobj):
         t = compressobj
@@ -2598,8 +2538,6 @@ class SshTransHoldTarpit(SshTarpit):
             packet = self.make_ssh_packet(self.make_ssh_msg_ignore(16))
             await writer.write_and_drain(packet)
 
-    pass
-
 
 class SshEndlessTarpit(SshTarpit):
     PATTERN_NAME: str = "ssh_endless_banner"
@@ -2647,8 +2585,6 @@ class TlsTarpit(StaticTarpit):
         )
         return frag
 
-    pass
-
 
 class TlsHelloRequestTarpit(TlsTarpit):
     PATTERN_NAME: str = "tls_endless_hello_request"
@@ -2676,8 +2612,6 @@ class TlsHelloRequestTarpit(TlsTarpit):
         while True:
             packet = self.make_hello_request_record()
             await writer.write_and_drain(packet)
-
-    pass
 
 
 class TlsSlowHelloTarpit(TlsTarpit):
@@ -2747,8 +2681,6 @@ class TlsSlowHelloTarpit(TlsTarpit):
         super()._setup()
         self._packet = self.make_server_hello_record()
 
-    pass
-
 
 class FtpTarpit(StaticTarpit):
     # https://www.rfc-editor.org/rfc/rfc959
@@ -2760,8 +2692,6 @@ class FtpTarpit(StaticTarpit):
     )
     validator_head_allowlist: tuple[bytes, ...] = (b"USER",)
     validator_response_failed: bytes = b"530 Please login with USER.\r\n"
-
-    pass
 
 
 class FtpEndlessMotdTarpit(FtpTarpit):
@@ -2787,8 +2717,6 @@ class SmtpTarpit(StaticTarpit):
     validator_response_failed: bytes = (
         b"502 Error: command not implemented.\r\n"
     )
-
-    pass
 
 
 class SmtpEndlessEhloTarpit(SmtpTarpit):
@@ -2827,7 +2755,6 @@ def clean_privilege() -> None:
                 os.setresuid(id_num, id_num, id_num)
             except Exception as e:
                 logging.warning(f"failed to drop privilege, error: `{e}`")
-    pass
 
 
 def generate_conf_from_cli(args, old_config: dict = {}):
@@ -2954,8 +2881,6 @@ def get_log_handler(file_name_in_conf):
         case _:
             return logging.FileHandler(file_name_in_conf)
 
-    pass
-
 
 def get_case_insensitive_value(key: str, dictionary: dict):
     if not all(ord(char) < 128 for char in key):
@@ -3074,7 +2999,6 @@ class TarpitSupervisor:
     async def handle_worker_stdout(self, event):
         logging.debug(event)
         self.event_store.append(event)
-        pass
 
     async def run_worker(self):
         self._worker_process = await asyncio.create_subprocess_exec(
@@ -3463,7 +3387,6 @@ class TarpitWorker:
                     alias,
                     c.PATTERN_NAME,
                 )
-        pass
 
     async def async_run_server(self):
         try:
@@ -3489,7 +3412,6 @@ class TarpitWorker:
     def start_all_server(self):
         with asyncio.Runner() as runner:
             runner.run(self.async_run_server())
-        pass
 
     def prepare_all_server(self):
         for name, tarpit_config in self.merged_config["tarpits"].items():
@@ -3524,7 +3446,6 @@ class TarpitWorker:
                 self.server.append(
                     pit.create_server(host=i["host"], port=i["port"])
                 )
-            pass
 
     @staticmethod
     def setup_main_logger(level, fmt, handler):
@@ -3544,12 +3465,10 @@ class TarpitWorker:
             if hasattr(h, "close"):
                 h.close()
         logger.addHandler(handler)
-        pass
 
     def run(self):
         self.prepare_all_server()
         self.start_all_server()
-        pass
 
 
 def display_manual_unix(name):
@@ -3714,7 +3633,6 @@ def main_cli():
 
     def manual(args):
         display_manual_unix(args.page)
-        pass
 
     manual_parser.set_defaults(func=manual)
 
