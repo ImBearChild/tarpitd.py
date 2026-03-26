@@ -2,7 +2,6 @@ import unittest
 import asyncio
 import tarpitd
 import time
-import dataclasses
 
 
 async def read_with_timeout(
@@ -83,11 +82,7 @@ async def get_http_header(reader: asyncio.StreamReader) -> str:
 
 class TestSshValidator(TarpitTestCase):
     class TARPIT(tarpitd.SshTransHoldTarpit):
-        @dataclasses.dataclass
-        class ValidatorConfig(tarpitd.SshTransHoldTarpit.ValidatorConfig):
-            response_failed: bytes = b"BAD_RESPONSE"
-            pass
-
+        validator_response_failed = b"BAD_RESPONSE"
         pass
 
     CONF: dict = {"rate_limit": 1024, "validation_level": 1}

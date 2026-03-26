@@ -1854,7 +1854,7 @@ class BaseTarpit:
                 )
             except asyncio.exceptions.CancelledError:
                 self.logger.debug("task cancelled")
-            except OSError as e:  
+            except OSError as e:
                 if hasattr(e, "winerror") and getattr(e, "winerror") == 121:
                     self._trace_client(
                         writer,
@@ -1926,13 +1926,19 @@ class BaseTarpit:
 
 
 class StaticTarpit(BaseTarpit):
-    @dataclasses.dataclass
-    class ValidatorConfig:
-        head_allowlist: tuple[bytes, ...] = (b"",)
-        timeout: float = 2
-        read_len: int = 4
-        banner: bytes = b""
-        response_failed: bytes = b""
+    """Base class for tarpits with static/client validation support.
+
+    Subclasses should override the validator_* class attributes to configure
+    validation behavior. For dynamic values using self, set instance attributes
+    in __init__ before calling super().__init__().
+    """
+
+    # Validator configuration - override these class attributes in subclasses
+    validator_head_allowlist: tuple[bytes, ...] = (b"",)
+    validator_timeout: float = 2
+    validator_read_len: int = 4
+    validator_banner: bytes = b""
+    validator_response_failed: bytes = b""
 
     class ValidationResult(typing.NamedTuple):
         expected: int  # 0 means failed and connection should close, 1 means good/good, 2 means check is skipped
@@ -1946,13 +1952,9 @@ class StaticTarpit(BaseTarpit):
     ]
 
     _validator_support: int = 0
-    _validator_config: ValidatorConfig
-    # This is an instance of dataclass, so it can be modified by child classes
-    # at runtime without breaking default values
 
     async def _validate_client(self, reader, writer):
-        conf = self._validator_config
-        await writer.write_and_drain(conf.banner)
+        await writer.write_and_drain(self.validator_banner)
 
         # If validation is disabled on validation-enabled tarpit, skip reading/checking client request
         if not self._config.validation_level:
@@ -1960,21 +1962,23 @@ class StaticTarpit(BaseTarpit):
             return self.ValidationResult(2, None, "validation disabled")
 
         # For validation enabled: read and validate client data normally
-        data = await read_with_timeout(reader, conf.read_len, conf.timeout)
-        for head in conf.head_allowlist:
+        data = await read_with_timeout(
+            reader, self.validator_read_len, self.validator_timeout
+        )
+        for head in self.validator_head_allowlist:
             if data.startswith(head):
                 return self.ValidationResult(1, data)  # 1 means good/valid
-        await writer.write_and_drain(conf.response_failed)
+        await writer.write_and_drain(self.validator_response_failed)
         return self.ValidationResult(0, data)  # 0 means failed/disconnect
 
     async def __fake_validate_client(self, reader, writer):
         # For scenarios where validation is enabled but not supported by the tarpit
         # Send banner to maintain protocol compliance, read client data but consider it 'not applicable'
-        await writer.write_and_drain(self._validator_config.banner)
+        await writer.write_and_drain(self.validator_banner)
         data = await read_with_timeout(
             reader,
-            self._validator_config.read_len,
-            self._validator_config.timeout,
+            self.validator_read_len,
+            self.validator_timeout,
         )
         return self.ValidationResult(
             2, data, "validation not applicable to this tarpit"
@@ -2031,7 +2035,6 @@ class StaticTarpit(BaseTarpit):
             # Handle normal tarpit operations
             await asyncio.gather(
                 # split read and write. we read and write at the same time.
-                # because we cant read after exception is raised.
                 self.__handle_valid_client(tarpit_reader, tarpit_writer),
                 self.__drain_remaining_data(tarpit_reader, tarpit_writer),
             )
@@ -2042,12 +2045,7 @@ class StaticTarpit(BaseTarpit):
 
     def __init__(self, **config):
         super().__init__(**config)
-        # Merge validator config
-        self._validator_config = self.ValidatorConfig()
-        assert (
-            self.ValidatorConfig().head_allowlist
-            == self.ValidatorConfig.head_allowlist
-        )
+
         self.__runtime_validate_client: StaticTarpit.ValidatorCallable
         # setup client_validation
         if not self._config.validation_level:
@@ -2152,10 +2150,7 @@ class EgshAminoasTarpit(StaticTarpit):
 
 class HttpTarpit(StaticTarpit):
     _validator_support = 1
-
-    @dataclasses.dataclass
-    class ValidatorConfig(StaticTarpit.ValidatorConfig):
-        head_allowlist: tuple[bytes, ...] = (b"GET ", b"HEAD")
+    validator_head_allowlist: tuple[bytes, ...] = (b"GET ", b"HEAD")
 
     class Connection:
         writer: TarpitWriter
@@ -2475,29 +2470,8 @@ class SshTarpit(StaticTarpit):
     # see: https://svn.nmap.org/nmap/nmap-service-probes
 
     _validator_support = 1
-
-    # Can not refer to var from nested class, so we create it from a
-    # programmtic way.
-    ValidatorConfig = dataclasses.make_dataclass(
-        "ValidatorConfig",
-        [
-            (
-                "head_allowlist",
-                tuple,
-                dataclasses.field(
-                    default=(b"SSH-",),
-                ),
-            ),
-            (
-                "response_failed",
-                bytes,
-                dataclasses.field(default=SSH_VERSION_STRING),
-            ),
-        ],
-        bases=(StaticTarpit.ValidatorConfig,),
-    )
-
-    # assert ValidatorConfig().response_failed == SSH_VERSION_STRING
+    validator_head_allowlist: tuple[bytes, ...] = (b"SSH-",)
+    validator_response_failed = SSH_VERSION_STRING
 
     class SshMegNumber(enum.IntEnum):
         """
@@ -2640,10 +2614,7 @@ class TlsTarpit(StaticTarpit):
     PROTOCOL_VERSION_MAGIC = b"\x03\x03"  # TLS 1.2, also apply to 1.3
 
     _validator_support = 1
-
-    @dataclasses.dataclass
-    class ValidatorConfig(StaticTarpit.ValidatorConfig):
-        head_allowlist: tuple[bytes] = (b"\x16\x03",)
+    validator_head_allowlist: tuple[bytes, ...] = (b"\x16\x03",)
 
     # See: TLS 1.2 RFC ttps://www.rfc-editor.org/rfc/rfc5246#page-15
     class TlsRecordContentType(enum.IntEnum):
@@ -2782,16 +2753,13 @@ class TlsSlowHelloTarpit(TlsTarpit):
 class FtpTarpit(StaticTarpit):
     # https://www.rfc-editor.org/rfc/rfc959
     _validator_support = 1
-
-    @dataclasses.dataclass
-    class ValidatorConfig(StaticTarpit.ValidatorConfig):
-        banner: bytes = (
-            b"220 (vsFTPd 3.0.5)\r\n"
-            # b"220 FileZilla Server 1.10.1\r\n"
-            # b"220 Please visit https://filezilla-project.org/\r\n"
-        )
-        head_allowlist: tuple[bytes] = (b"USER",)
-        response_failed: bytes = b"530 Please login with USER.\r\n"
+    validator_banner: bytes = (
+        b"220 (vsFTPd 3.0.5)\r\n"
+        # b"220 FileZilla Server 1.10.1\r\n"
+        # b"220 Please visit https://filezilla-project.org/\r\n"
+    )
+    validator_head_allowlist: tuple[bytes, ...] = (b"USER",)
+    validator_response_failed: bytes = b"530 Please login with USER.\r\n"
 
     pass
 
@@ -2811,15 +2779,14 @@ class SmtpTarpit(StaticTarpit):
     # https://datatracker.ietf.org/doc/html/rfc5321#appendix-D.1
 
     _validator_support = 1
-
-    @dataclasses.dataclass
-    class ValidatorConfig(StaticTarpit.ValidatorConfig):
-        banner: bytes = (
-            b"220 [127.0.0.1] ESMTP Sendmail 8.16.1/8.16.1; "
-            b"Thu, 01 Sep 1993 00:00:00 +0000\r\n"
-        )
-        head_allowlist: tuple[bytes, ...] = (b"EHLO", b"HELO")
-        response_failed: bytes = b"502 Error: command not implemented.\r\n"
+    validator_banner: bytes = (
+        b"220 [127.0.0.1] ESMTP Sendmail 8.16.1/8.16.1; "
+        b"Thu, 01 Sep 1993 00:00:00 +0000\r\n"
+    )
+    validator_head_allowlist: tuple[bytes, ...] = (b"EHLO", b"HELO")
+    validator_response_failed: bytes = (
+        b"502 Error: command not implemented.\r\n"
+    )
 
     pass
 
@@ -3701,7 +3668,7 @@ def main_cli():
     )
 
     def serve(args):
-        global _MANUAL_TARPITD_PY_1,_MANUAL_TARPITD_CONF_5
+        global _MANUAL_TARPITD_PY_1, _MANUAL_TARPITD_CONF_5
         conf: dict = {}
         if args.pattern:
             conf = generate_conf_from_cli(args)
@@ -3721,7 +3688,7 @@ def main_cli():
             serve_parser.parse_args(["--help"])
             exit()
         if args.standalone:
-            del _MANUAL_TARPITD_PY_1,_MANUAL_TARPITD_CONF_5
+            del _MANUAL_TARPITD_PY_1, _MANUAL_TARPITD_CONF_5
             worker = TarpitWorker(conf)
             worker.run()
         else:
