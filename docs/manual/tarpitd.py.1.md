@@ -296,7 +296,7 @@ This will display:
 
 ##### Options
 
-- `-s, --socket PATH` - Specify the Unix domain socket path (default: /tmp/tarpitd.sock)
+- `-s, --socket PATH` - Specify the Unix domain socket path (default: /tmp/tarpitd_u<UID>.sock)
   Can also be set via environment variable `TARPITD_SOCKET`.
 
 #### `ctl logs`

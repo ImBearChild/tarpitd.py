@@ -306,7 +306,7 @@ This will display:
 
 ##### Options
 
-- `-s, --socket PATH` - Specify the Unix domain socket path (default: /tmp/tarpitd.sock)
+- `-s, --socket PATH` - Specify the Unix domain socket path (default: /tmp/tarpitd_u<UID>.sock)
   Can also be set via environment variable `TARPITD_SOCKET`.
 
 #### `ctl logs`
@@ -496,6 +496,11 @@ class BytesLiteralEncoder(json.JSONEncoder):
         elif isinstance(o, bytearray):
             return repr(o)[10:-1]
         return json.JSONEncoder.default(self, o)
+
+
+def _get_default_socket_path() -> str:
+    """Return default Unix domain socket path based on user ID."""
+    return f"/tmp/tarpitd_u{os.getuid()}.sock"
 
 
 class EventStore:
@@ -1031,7 +1036,7 @@ class JsonRpcUnixServer(JsonRpcServer):
     def __init__(self, socket_path: str, name: str = "__main__"):
         super().__init__(name)
         self._socket_path = socket_path
-        self._server: typing.Optional[asyncio.AbstractServer] = None
+        self._server: typing.Optional[asyncio.Server] = None
 
     async def start(self) -> None:
         """Start the Unix domain socket server."""
@@ -3253,7 +3258,9 @@ class TarpitSupervisor:
             await self.handle_worker_stdout(event=ev)
 
     async def run_rpc_server(self):
-        socket_path = "/tmp/tarpitd.sock"  # TODO: Fix this
+        socket_path = (
+            os.environ.get("TARPITD_SOCKET") or _get_default_socket_path()
+        )
 
         server = JsonRpcUnixServer(socket_path, name="tarpitd_rpc")
 
@@ -3376,9 +3383,11 @@ class TarpitSupervisor:
 
 
 class TarpitCtl:
-    def __init__(self, socket_path: str = "/tmp/tarpitd.sock"):
-        self.socket_path = socket_path
-        self.client = JsonRpcUnixClient(socket_path, name="tarpitd_ctl")
+    def __init__(
+        self, socket_path: str = ""
+    ):  # default is set in body via _get_default_socket_path()
+        self.socket_path = socket_path or _get_default_socket_path()
+        self.client = JsonRpcUnixClient(self.socket_path, name="tarpitd_ctl")
 
     def _format_uptime(self, started_at: float) -> str:
         current_time = time.time()
@@ -3868,9 +3877,9 @@ def main_cli():
     ctl_parser.add_argument(
         "-s",
         "--socket",
-        help="Unix domain socket path (default: /tmp/tarpitd.sock)",
+        help="Unix domain socket path (default: /tmp/tarpitd_u<UID>.sock)",
         metavar="PATH",
-        default=os.environ.get("TARPITD_SOCKET", "/tmp/tarpitd.sock"),
+        default=os.environ.get("TARPITD_SOCKET", ""),
         action="store",
     )
 
