@@ -1089,6 +1089,82 @@ class JsonRpcUnixServer(JsonRpcServer):
         return self._socket_path
 
 
+class JsonRpcTcpServer(JsonRpcServer):
+    """
+    JSON-RPC 2.0 server listening on TCP socket.
+
+    Extends JsonRpcServer to handle TCP socket transport.
+    """
+
+    def __init__(self, host: str, port: int, name: str = "__main__"):
+        super().__init__(name)
+        self._host = host
+        self._port = port
+        self._server: typing.Optional[asyncio.Server] = None
+
+    async def start(self) -> None:
+        """Start the TCP socket server."""
+        self._server = await asyncio.start_server(
+            self._handle_client, host=self._host, port=self._port
+        )
+
+    async def _handle_client(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        """Handle incoming client connection."""
+        try:
+            data = await reader.read(65536)
+            if not data:
+                return
+
+            response = await self.handle_request(data)
+
+            if response is not None:
+                json_response = json.dumps(response)
+                writer.write(json_response.encode("utf-8"))
+                await writer.drain()
+        except asyncio.TimeoutError as e:
+            self._logger.error(
+                "[%s] Timeout receiving request: %s", self._name, e
+            )
+        except OSError as e:
+            self._logger.error(
+                "[%s] Error receiving request: %s", self._name, e
+            )
+        except Exception as e:
+            self._logger.error("[%s] Error handling client: %s", self._name, e)
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    async def stop(self) -> None:
+        """Stop the server and clean up."""
+        if self._server:
+            self._server.close()
+            await self._server.wait_closed()
+
+    @property
+    def host(self) -> str:
+        """Return the host address."""
+        return self._host
+
+    @property
+    def port(self) -> int:
+        """Return the port number."""
+        # If using dynamic port (port=0), return the actual assigned port
+        if self._port == 0 and self._server is not None:
+            sock = self._server.sockets[0]  # type: ignore[attr-defined]
+            return sock.getsockname()[1]
+        return self._port
+
+    def get_address(self) -> tuple[str, int]:
+        """Return the (host, port) address."""
+        return (self.host, self.port)
+
+
 class JsonRpcClient:
     """
     JSON-RPC 2.0 client using standard library only.
@@ -1424,6 +1500,152 @@ class JsonRpcUnixClient(JsonRpcClient):
     def socket_path(self) -> str:
         """Return the Unix socket path."""
         return self._socket_path
+
+
+class JsonRpcTcpClient(JsonRpcClient):
+    """
+    JSON-RPC 2.0 client connecting via TCP socket.
+
+    Extends JsonRpcClient to handle TCP socket transport.
+    Connections are created per-request and closed after response.
+    """
+
+    def __init__(self, host: str, port: int, name: str = "__main__"):
+        super().__init__(name)
+        self._host = host
+        self._port = port
+
+    def call(
+        self,
+        method: str,
+        params: typing.Optional[typing.Union[list, dict]] = None,
+    ) -> typing.Any:
+        """
+        Make a JSON-RPC call and return the result.
+        Opens connection, sends request, reads response, closes connection.
+
+        Args:
+            method: Method name to call
+            params: Optional positional (list) or keyword (dict) parameters
+
+        Returns:
+            The result from the server
+        """
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.connect((self._host, self._port))
+
+            request = self.make_request(method, params)
+            sock.sendall(request.encode("utf-8"))
+
+            data = sock.recv(65536)
+            response = self.parse_response(data)
+
+            if isinstance(response, dict):
+                return response.get("result")
+            return None
+        except socket.timeout as e:
+            self._logger.error(
+                "[%s] Timeout sending/receiving request: %s", self._name, e
+            )
+            raise
+        except OSError as e:
+            self._logger.error(
+                "[%s] Error sending/receiving request: %s", self._name, e
+            )
+            raise
+        finally:
+            sock.close()
+
+    def notify(
+        self,
+        method: str,
+        params: typing.Optional[typing.Union[list, dict]] = None,
+    ) -> None:
+        """
+        Send a JSON-RPC notification (no response expected).
+        Opens connection, sends notification, closes connection.
+
+        Args:
+            method: Method name to call
+            params: Optional positional (list) or keyword (dict) parameters
+        """
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.connect((self._host, self._port))
+
+            notification = self.make_notification(method, params)
+            sock.sendall(notification.encode("utf-8"))
+        except socket.timeout as e:
+            self._logger.error(
+                "[%s] Timeout sending notification: %s", self._name, e
+            )
+            raise
+        except OSError as e:
+            self._logger.error(
+                "[%s] Error sending notification: %s", self._name, e
+            )
+            raise
+        finally:
+            sock.close()
+
+    def call_batch(
+        self,
+        requests: typing.List[
+            typing.Tuple[str, typing.Optional[typing.Union[list, dict]]]
+        ],
+    ) -> typing.List[typing.Dict]:
+        """
+        Make a batch JSON-RPC call.
+        Opens connection, sends batch, reads response, closes connection.
+
+        Args:
+            requests: List of (method, params) tuples
+
+        Returns:
+            List of response dicts
+        """
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.connect((self._host, self._port))
+
+            batch = self.make_batch(requests)
+            sock.sendall(batch.encode("utf-8"))
+
+            data = sock.recv(65536)
+            response = self.parse_response(data)
+
+            if isinstance(response, list):
+                return response
+            return []
+        except socket.timeout as e:
+            self._logger.error(
+                "[%s] Timeout sending/receiving batch request: %s",
+                self._name,
+                e,
+            )
+            raise
+        except OSError as e:
+            self._logger.error(
+                "[%s] Error sending/receiving batch request: %s", self._name, e
+            )
+            raise
+        finally:
+            sock.close()
+
+    @property
+    def host(self) -> str:
+        """Return the host address."""
+        return self._host
+
+    @property
+    def port(self) -> int:
+        """Return the port number."""
+        return self._port
+
+    def get_address(self) -> tuple[str, int]:
+        """Return the (host, port) address."""
+        return (self._host, self._port)
 
 
 ## Event dataclasses

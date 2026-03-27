@@ -5,7 +5,7 @@ import typing
 import os
 import tempfile
 
-import tarpitd as jsonrpc 
+import tarpitd as jsonrpc
 
 
 class TestJsonRpcClient(unittest.TestCase):
@@ -174,7 +174,9 @@ class TestJsonRpcError(unittest.TestCase):
         self.assertNotIn("data", error_dict)
 
     def test_error_with_data(self):
-        error = jsonrpc.JsonRpcError(-32000, "Server error", {"details": "extra info"})
+        error = jsonrpc.JsonRpcError(
+            -32000, "Server error", {"details": "extra info"}
+        )
         error_dict = error.to_dict()
 
         self.assertEqual(error_dict["data"], {"details": "extra info"})
@@ -241,7 +243,12 @@ class TestJsonRpcServer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["error"]["code"], -32600)
 
     async def test_method_not_found(self):
-        request = {"jsonrpc": "2.0", "method": "nonexistent", "params": [], "id": 3}
+        request = {
+            "jsonrpc": "2.0",
+            "method": "nonexistent",
+            "params": [],
+            "id": 3,
+        }
         response = await self.server.handle_request(json.dumps(request))
 
         self.assertEqual(response["error"]["code"], -32601)
@@ -334,8 +341,15 @@ class TestJsonRpcServer(unittest.IsolatedAsyncioTestCase):
         async def sum_vals(a: int, b: int) -> int:
             return a + b
 
-        request = {"jsonrpc": "2.0", "method": "sum", "params": [10, 20], "id": 5}
-        response = await self.server.handle_request(json.dumps(request).encode("utf-8"))
+        request = {
+            "jsonrpc": "2.0",
+            "method": "sum",
+            "params": [10, 20],
+            "id": 5,
+        }
+        response = await self.server.handle_request(
+            json.dumps(request).encode("utf-8")
+        )
 
         self.assertEqual(response["result"], 30)
 
@@ -384,7 +398,9 @@ class TestJsonRpcUnixServer(unittest.IsolatedAsyncioTestCase):
 
     async def _handle_request_async(self, request_data: str) -> typing.Any:
         """Helper to send request to server and get response."""
-        reader, writer = await asyncio.open_unix_connection(path=self.socket_path)
+        reader, writer = await asyncio.open_unix_connection(
+            path=self.socket_path
+        )
         try:
             writer.write(request_data.encode("utf-8"))
             await writer.drain()
@@ -398,7 +414,12 @@ class TestJsonRpcUnixServer(unittest.IsolatedAsyncioTestCase):
                 pass
 
     async def test_unix_server_echo(self):
-        request = {"jsonrpc": "2.0", "method": "echo", "params": ["hello"], "id": 1}
+        request = {
+            "jsonrpc": "2.0",
+            "method": "echo",
+            "params": ["hello"],
+            "id": 1,
+        }
         response = await self._handle_request_async(json.dumps(request))
         self.assertEqual(response["result"], "hello")
 
@@ -431,6 +452,144 @@ class TestJsonRpcUnixServer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["result"], 3)
         self.assertEqual(response[1]["result"], 7)
+
+
+class TestJsonRpcTcpServer(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.server = jsonrpc.JsonRpcTcpServer("127.0.0.1", 0)
+
+        @self.server.register_method("echo")
+        async def echo(message: str) -> str:
+            return message
+
+        @self.server.register_method("add")
+        async def add(a: int, b: int) -> int:
+            return a + b
+
+        await self.server.start()
+
+        # Get the actual port assigned by the OS
+        self.port = self.server._server.sockets[0].getsockname()[1]
+
+    async def asyncTearDown(self):
+        await self.server.stop()
+
+    async def _handle_request_async(self, request_data: str) -> typing.Any:
+        """Helper to send request to server and get response."""
+        reader, writer = await asyncio.open_connection(
+            host="127.0.0.1", port=self.port
+        )
+        try:
+            writer.write(request_data.encode("utf-8"))
+            await writer.drain()
+            data = await reader.read(65536)
+            return json.loads(data.decode("utf-8")) if data else None
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    async def test_tcp_server_echo(self):
+        request = {
+            "jsonrpc": "2.0",
+            "method": "echo",
+            "params": ["hello"],
+            "id": 1,
+        }
+        response = await self._handle_request_async(json.dumps(request))
+        self.assertEqual(response["result"], "hello")
+
+    async def test_tcp_server_add(self):
+        request = {"jsonrpc": "2.0", "method": "add", "params": [2, 3], "id": 1}
+        response = await self._handle_request_async(json.dumps(request))
+        self.assertEqual(response["result"], 5)
+
+    async def test_tcp_server_keyword_params(self):
+        request = {
+            "jsonrpc": "2.0",
+            "method": "echo",
+            "params": {"message": "world"},
+            "id": 1,
+        }
+        response = await self._handle_request_async(json.dumps(request))
+        self.assertEqual(response["result"], "world")
+
+    async def test_tcp_server_notification(self):
+        request = {"jsonrpc": "2.0", "method": "echo", "params": ["test"]}
+        response = await self._handle_request_async(json.dumps(request))
+        self.assertIsNone(response)
+
+    async def test_tcp_server_batch(self):
+        requests = [
+            {"jsonrpc": "2.0", "method": "add", "params": [1, 2], "id": 1},
+            {"jsonrpc": "2.0", "method": "add", "params": [3, 4], "id": 2},
+        ]
+        response = await self._handle_request_async(json.dumps(requests))
+        self.assertEqual(len(response), 2)
+        self.assertEqual(response[0]["result"], 3)
+        self.assertEqual(response[1]["result"], 7)
+
+    async def test_tcp_server_properties(self):
+        self.assertEqual(self.server.host, "127.0.0.1")
+        self.assertIsInstance(self.server.port, int)
+        self.assertEqual(self.server.get_address(), ("127.0.0.1", self.port))
+
+
+class TestJsonRpcTcpClient(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.server = jsonrpc.JsonRpcTcpServer("127.0.0.1", 0)
+
+        @self.server.register_method("echo")
+        async def echo(message: str) -> str:
+            return message
+
+        @self.server.register_method("add")
+        async def add(a: int, b: int) -> int:
+            return a + b
+
+        await self.server.start()
+
+        # Get the actual port assigned by the OS
+        self.port = self.server._server.sockets[0].getsockname()[1]
+        self.client = jsonrpc.JsonRpcTcpClient("127.0.0.1", self.port)
+
+    async def asyncTearDown(self):
+        await self.server.stop()
+
+    async def test_tcp_client_echo(self):
+        result = await asyncio.to_thread(self.client.call, "echo", ["hello"])
+        self.assertEqual(result, "hello")
+
+    async def test_tcp_client_add(self):
+        result = await asyncio.to_thread(self.client.call, "add", [2, 3])
+        self.assertEqual(result, 5)
+
+    async def test_tcp_client_keyword_params(self):
+        result = await asyncio.to_thread(
+            self.client.call, "echo", {"message": "world"}
+        )
+        self.assertEqual(result, "world")
+
+    async def test_tcp_client_notification(self):
+        # Notifications don't return anything
+        await asyncio.to_thread(self.client.notify, "echo", ["test"])
+
+    async def test_tcp_client_batch(self):
+        requests = [
+            ("add", [1, 2]),
+            ("add", [3, 4]),
+        ]
+        response = await asyncio.to_thread(self.client.call_batch, requests)
+        self.assertEqual(len(response), 2)
+        self.assertEqual(response[0]["result"], 3)
+        self.assertEqual(response[1]["result"], 7)
+
+    async def test_tcp_client_properties(self):
+        self.assertEqual(self.client.host, "127.0.0.1")
+        self.assertEqual(self.client.port, self.port)
+        self.assertEqual(self.client.get_address(), ("127.0.0.1", self.port))
 
 
 if __name__ == "__main__":
