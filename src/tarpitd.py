@@ -483,6 +483,8 @@ import socket
 import sqlite3
 import platform
 import gc
+import ctypes
+import pwd
 
 # module for cli use only will be import when needed
 
@@ -2965,24 +2967,190 @@ class SmtpEndlessEhloTarpit(SmtpTarpit):
 ##
 
 
-def clean_privilege() -> None:
-    # Clean env
-    os.environ.clear()
-    if os.name == "posix":
-        if os.getuid() == 0:
-            logging.info("privileged uid detected, dropping privilege")
-            # Using a blank uid is not safe,
-            # Chroot to /tmp is not safe
-            # but still better than running as root
+def _pr_set_no_new_privs() -> None:
+    """Prevent this process from gaining new privileges via execve(2).
+
+    Failure is non-fatal: the process continues but without this hardening.
+    """
+    try:
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        PR_SET_NO_NEW_PRIVS = 38
+        ret = libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
+        if ret != 0:
+            err = ctypes.get_errno()
+            logging.warning(
+                "prctl PR_SET_NO_NEW_PRIVS failed (errno=%d)", err
+            )
+            return
+    except Exception:
+        logging.warning(
+            "prctl PR_SET_NO_NEW_PRIVS unavailable", exc_info=True
+        )
+        return
+    logging.info("PR_SET_NO_NEW_PRIVS set")
+
+
+def _landlock_apply_deny_all() -> bool:
+    """Apply Landlock deny-all filesystem policy (irreversible).
+
+    Returns True if Landlock was applied, False if not supported or
+    if any step failed.  All failures are non-fatal -- the process
+    continues with whatever isolation is available.
+    """
+    try:
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        NR_CREATE_RULESET = 444
+        NR_RESTRICT_SELF = 446
+
+        abi = libc.syscall(NR_CREATE_RULESET, 0, 0, 1 << 0)
+        if abi < 0:
+            err = ctypes.get_errno()
+            logging.warning(
+                "Landlock not supported (errno=%d), "
+                "filesystem sandbox not applied",
+                err,
+            )
+            return False
+
+        if abi < 1:
+            logging.warning(
+                "Landlock ABI %d too old (< 1), "
+                "filesystem sandbox not applied",
+                abi,
+            )
+            return False
+
+        # Build access-rights mask for the supported ABI
+        mask: int = 0
+        for i in range(13):
+            mask |= 1 << i
+        if abi >= 2:
+            mask |= 1 << 13
+        if abi >= 3:
+            mask |= 1 << 14
+        if abi >= 5:
+            mask |= 1 << 15
+
+        logging.debug(
+            "Landlock ABI %d, access mask 0x%x, creating deny-all ruleset",
+            abi,
+            mask,
+        )
+
+        class LandlockRulesetAttr(ctypes.Structure):
+            _fields_ = [("handled_access_fs", ctypes.c_uint64)]
+
+        attr = LandlockRulesetAttr(handled_access_fs=mask)
+        ruleset_fd = libc.syscall(
+            NR_CREATE_RULESET,
+            ctypes.byref(attr),
+            ctypes.sizeof(attr),
+            0,
+        )
+        if ruleset_fd < 0:
+            logging.warning(
+                "landlock_create_ruleset failed (errno=%d), "
+                "filesystem sandbox not applied",
+                ctypes.get_errno(),
+            )
+            return False
+
+        try:
+            ret = libc.syscall(NR_RESTRICT_SELF, ruleset_fd, 0)
+            if ret < 0:
+                logging.warning(
+                    "landlock_restrict_self failed (errno=%d), "
+                    "filesystem sandbox not applied",
+                    ctypes.get_errno(),
+                )
+                return False
+            logging.info(
+                "Landlock deny-all filesystem policy applied (ABI %d)",
+                abi,
+            )
+
+            # Sanity check: verify filesystem access is denied
             try:
-                os.chroot("/tmp")
-                os.chdir("/")
-                id_num = 65533
-                os.setgroups([id_num])
-                os.setresgid(id_num, id_num, id_num)
-                os.setresuid(id_num, id_num, id_num)
-            except Exception as e:
-                logging.warning(f"failed to drop privilege, error: `{e}`")
+                os.listdir("/")
+                logging.warning(
+                    "Landlock sanity check FAILED: "
+                    "filesystem still accessible"
+                )
+            except PermissionError:
+                logging.debug(
+                    "Landlock sanity check passed: "
+                    "filesystem access denied"
+                )
+            except OSError as e:
+                logging.debug(
+                    "Landlock sanity check: "
+                    "dir listing blocked (%s)", e
+                )
+        finally:
+            os.close(ruleset_fd)
+
+        return True
+    except Exception:
+        logging.warning(
+            "Landlock setup failed, "
+            "filesystem sandbox not applied",
+            exc_info=True,
+        )
+        return False
+
+
+def clean_privilege() -> None:
+    os.environ.clear()
+    if os.name != "posix":
+        return
+
+    is_root = os.getuid() == 0
+
+    if is_root:
+        logging.info("privileged uid detected, dropping privileges")
+
+        # Resolve unprivileged user before locking the filesystem
+        try:
+            nobody = pwd.getpwnam("nobody")
+            uid, gid = nobody.pw_uid, nobody.pw_gid
+            if uid == 0 or gid == 0:
+                raise ValueError("nobody user maps to root")
+        except (KeyError, ValueError) as e:
+            uid, gid = 65534, 65534
+            logging.warning(
+                "nobody user unavailable: %s, "
+                "using fallback uid=%d gid=%d",
+                e,
+                uid,
+                gid,
+            )
+
+        logging.debug(
+            "target uid=%d gid=%d for privilege drop", uid, gid
+        )
+
+    _pr_set_no_new_privs()
+    _landlock_apply_deny_all()
+
+    if is_root:
+        try:
+            os.setgroups([gid])
+            os.setresgid(gid, gid, gid)
+            os.setresuid(uid, uid, uid)
+            logging.info(
+                "dropped privileges to uid=%d gid=%d", uid, gid
+            )
+            logging.debug(
+                "privilege drop complete, euid=%d egid=%d",
+                os.geteuid(),
+                os.getegid(),
+            )
+        except OSError as e:
+            logging.warning(
+                "setuid/setgid failed: %s, "
+                "continuing with current uid",
+                e,
+            )
 
 
 def generate_conf_from_cli(args, old_config: dict = {}):
