@@ -1046,6 +1046,7 @@ class JsonRpcUnixServer(JsonRpcServer):
         self._server = await asyncio.start_unix_server(
             self._handle_client, path=self._socket_path
         )
+        os.chmod(self._socket_path, 0o600)
 
     async def _handle_client(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
